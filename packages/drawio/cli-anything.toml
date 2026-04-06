@@ -1,0 +1,101 @@
+name = "drawio"
+version = "1.0.0"
+binary = "cli-anything-drawio"
+description = "Diagram creation and export via draw.io CLI"
+repl_default = true
+supports_json = true
+
+[backend]
+command = "draw.io"
+system_package = "draw.io desktop app"
+hard_dependency = true
+
+[project]
+format = "drawio"
+state_file = ".drawio-cli.json"
+
+[skill]
+output = "packages/drawio/skills/SKILL.md"
+template = "cli-anything-plugin/templates/SKILL.md.template"
+
+[[command_groups]]
+name = "project"
+description = "Diagram project commands"
+
+[[command_groups.commands]]
+name = "new"
+description = "Create a new diagram"
+
+[[command_groups.commands]]
+name = "info"
+description = "Show project metadata"
+
+[[command_groups]]
+name = "shape"
+description = "Shape creation commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Add a shape"
+
+[[command_groups.commands]]
+name = "types"
+description = "List shape types"
+
+[[command_groups]]
+name = "connect"
+description = "Connector authoring commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Create a connector"
+
+[[command_groups.commands]]
+name = "styles"
+description = "List connector styles"
+
+[[command_groups]]
+name = "page"
+description = "Page management commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Add a page"
+
+[[command_groups.commands]]
+name = "list"
+description = "List pages"
+
+[[command_groups]]
+name = "export"
+description = "Export commands"
+
+[[command_groups.commands]]
+name = "diagram"
+description = "Export a diagram"
+
+[[command_groups.commands]]
+name = "formats"
+description = "List formats"
+
+[[command_groups]]
+name = "session"
+description = "Session management commands"
+
+[[command_groups.commands]]
+name = "status"
+description = "Show current session"
+
+[[command_groups.commands]]
+name = "save"
+description = "Persist session state"
+
+[[examples]]
+title = "Create diagram"
+description = "Create a new diagram file."
+code = "cli-anything-drawio project new -o architecture.drawio"
+
+[[examples]]
+title = "Add rectangle"
+description = "Add a rectangle shape to the current page."
+code = "cli-anything-drawio shape add rectangle --text API"

@@ -6,8 +6,8 @@ use clap::{Parser, Subcommand};
 use cli_anything_core::{
     BackendConfig, BuiltinCommandId, CliAnythingManifest, CommandGroup, CommandSpec, ExampleSpec,
     ProjectConfig, SkillConfig, ValidationCategory, ValidationCheck, ValidationReport,
-    builtin_command_documents, command_document, load_manifest_from_path, package_layout,
-    parse_source_target,
+    builtin_command_documents, builtin_package_spec, command_document, load_manifest_from_path,
+    package_layout, parse_source_target,
 };
 use cli_anything_repl::Skin;
 use cli_anything_skillgen::generate_skill_file;
@@ -453,6 +453,32 @@ fn collect_manifest_paths(
 }
 
 fn scaffold_manifest(software_name: &str) -> CliAnythingManifest {
+    if let Some(spec) = builtin_package_spec(software_name) {
+        return CliAnythingManifest {
+            name: spec.name.clone(),
+            version: "1.0.0".to_string(),
+            binary: format!("cli-anything-{}", spec.name),
+            description: spec.description,
+            repl_default: true,
+            supports_json: true,
+            backend: BackendConfig {
+                command: spec.backend_command,
+                system_package: spec.system_package,
+                hard_dependency: true,
+            },
+            project: ProjectConfig {
+                format: spec.project_format,
+                state_file: spec.state_file,
+            },
+            skill: SkillConfig {
+                output: format!("packages/{software_name}/skills/SKILL.md"),
+                template: "cli-anything-plugin/templates/SKILL.md.template".to_string(),
+            },
+            command_groups: spec.command_groups,
+            examples: spec.examples,
+        };
+    }
+
     CliAnythingManifest {
         name: software_name.to_string(),
         version: "0.1.0".to_string(),
@@ -513,25 +539,191 @@ fn scaffold_manifest(software_name: &str) -> CliAnythingManifest {
 
 fn render_generated_package_cargo_toml(manifest: &CliAnythingManifest) -> String {
     format!(
-        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2024\"\n\n[dependencies]\nanyhow = \"1.0\"\nclap = {{ version = \"4.5\", features = [\"derive\"] }}\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n",
+        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2024\"\n\n[dependencies]\nclap = {{ version = \"4.5\", features = [\"derive\"] }}\ncli-anything-repl = {{ path = \"../../crates/cli-anything-repl\" }}\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n",
         manifest.binary, manifest.version
     )
 }
 
 fn render_generated_package_main_rs(manifest: &CliAnythingManifest) -> String {
+    let action_variants = manifest
+        .command_groups
+        .iter()
+        .map(|group| {
+            let group_type = to_pascal_case(&group.name);
+            format!(
+                "    {group_type} {{\n        #[command(subcommand)]\n        command: {group_type}Command,\n    }},\n"
+            )
+        })
+        .collect::<String>();
+    let command_enums = manifest
+        .command_groups
+        .iter()
+        .map(render_command_group_enum)
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let command_name_fns = manifest
+        .command_groups
+        .iter()
+        .map(render_command_name_fn)
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let command_description_fns = manifest
+        .command_groups
+        .iter()
+        .map(render_command_description_fn)
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let command_match_arms = manifest
+        .command_groups
+        .iter()
+        .map(|group| {
+            let group_type = to_pascal_case(&group.name);
+            let helper_name = format!("{}_command_name", to_snake_case(&group.name));
+            let helper_description =
+                format!("{}_command_description", to_snake_case(&group.name));
+            format!(
+                "        Action::{group_type} {{ command }} => command_response(\"{group_name}\", {helper_name}(&command), {helper_description}(&command)),\n",
+                group_name = group.name,
+            )
+        })
+        .collect::<String>();
+    let command_groups = manifest
+        .command_groups
+        .iter()
+        .map(|group| format!("\"{}\"", group.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let command_group_list = manifest
+        .command_groups
+        .iter()
+        .map(|group| group.name.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let skill_path = manifest.skill.output.clone();
+
     format!(
-        "use clap::Parser;\n\n#[derive(Debug, Parser)]\n#[command(name = \"{binary}\")]\n#[command(about = \"{description}\")]\nstruct App {{\n    #[arg(long)]\n    json: bool,\n}}\n\nfn main() {{\n    let app = App::parse();\n    if app.json {{\n        println!(\"{{\\\"name\\\":\\\"{name}\\\",\\\"binary\\\":\\\"{binary}\\\"}}\");\n    }} else {{\n        println!(\"{binary} ready\");\n    }}\n}}\n",
+        "use clap::{{Parser, Subcommand}};\nuse cli_anything_repl::Skin;\nuse serde::Serialize;\n\n#[derive(Debug, Parser)]\n#[command(name = \"{binary}\")]\n#[command(about = \"{description}\")]\nstruct App {{\n    #[arg(long)]\n    json: bool,\n    #[command(subcommand)]\n    action: Option<Action>,\n}}\n\n#[derive(Debug, Subcommand)]\nenum Action {{\n{action_variants}}}\n\n{command_enums}\n\n#[derive(Debug, Serialize)]\nstruct PackageSummary {{\n    name: &'static str,\n    binary: &'static str,\n    version: &'static str,\n    description: &'static str,\n    project_format: &'static str,\n    skill_path: &'static str,\n    command_groups: Vec<&'static str>,\n    supports_json: bool,\n    repl_default: bool,\n}}\n\n#[derive(Debug, Serialize)]\nstruct CommandResponse {{\n    software: &'static str,\n    binary: &'static str,\n    group: &'static str,\n    command: &'static str,\n    description: &'static str,\n}}\n\nfn main() {{\n    let app = App::parse();\n    let skin = Skin::new(\"{name}\", \"{version}\").with_skill_path(\"skills/SKILL.md\");\n\n    match app.action {{\n        Some(action) => {{\n            let response = match action {{\n{command_match_arms}            }};\n            if app.json {{\n                println!(\"{{}}\", serde_json::to_string_pretty(&response).expect(\"command response should serialize\"));\n            }} else {{\n                println!(\"{{}}\", skin.info(&format!(\"{{}} -> {{}}\", response.group, response.command)));\n                println!(\"{{}}\", skin.status(\"detail\", response.description));\n            }}\n        }}\n        None => {{\n            let summary = package_summary();\n            if app.json {{\n                println!(\"{{}}\", serde_json::to_string_pretty(&summary).expect(\"package summary should serialize\"));\n            }} else {{\n                for line in skin.banner_lines() {{\n                    println!(\"{{line}}\");\n                }}\n                println!(\"{{}}\", skin.status(\"binary\", \"{binary}\"));\n                println!(\"{{}}\", skin.status(\"format\", \"{project_format}\"));\n                println!(\"{{}}\", skin.status(\"groups\", \"{command_group_list}\"));\n            }}\n        }}\n    }}\n}}\n\nfn package_summary() -> PackageSummary {{\n    PackageSummary {{\n        name: \"{name}\",\n        binary: \"{binary}\",\n        version: \"{version}\",\n        description: \"{description}\",\n        project_format: \"{project_format}\",\n        skill_path: \"{skill_path}\",\n        command_groups: vec![{command_groups}],\n        supports_json: true,\n        repl_default: true,\n    }}\n}}\n\nfn command_response(group: &'static str, command: &'static str, description: &'static str) -> CommandResponse {{\n    CommandResponse {{\n        software: \"{name}\",\n        binary: \"{binary}\",\n        group,\n        command,\n        description,\n    }}\n}}\n\n{command_name_fns}\n\n{command_description_fns}\n",
         name = manifest.name,
         binary = manifest.binary,
-        description = manifest.description
+        description = manifest.description,
+        version = manifest.version,
+        project_format = manifest.project.format,
+        skill_path = skill_path,
+        action_variants = action_variants,
+        command_enums = command_enums,
+        command_match_arms = command_match_arms,
+        command_groups = command_groups,
+        command_group_list = command_group_list,
+        command_name_fns = command_name_fns,
+        command_description_fns = command_description_fns,
     )
 }
 
 fn render_generated_smoke_test(manifest: &CliAnythingManifest) -> String {
+    let first_group = manifest
+        .command_groups
+        .first()
+        .expect("generated package should include at least one command group");
+    let first_command = first_group
+        .commands
+        .first()
+        .expect("generated package should include at least one command");
+    let command_group_count = manifest.command_groups.len();
+
     format!(
-        "#[test]\nfn binary_name_is_stable() {{\n    assert_eq!(\"{}\", \"{}\");\n}}\n",
-        manifest.binary, manifest.binary
+        "use std::process::Command;\n\nuse serde_json::Value;\n\nfn run_binary(args: &[&str]) -> std::process::Output {{\n    Command::new(env!(\"CARGO_BIN_EXE_{binary}\"))\n        .args(args)\n        .output()\n        .expect(\"generated binary should run\")\n}}\n\n#[test]\nfn binary_name_is_stable() {{\n    assert_eq!(\"{binary}\", \"{binary}\");\n}}\n\n#[test]\nfn json_summary_reports_package_metadata() {{\n    let output = run_binary(&[\"--json\"]);\n\n    assert!(output.status.success());\n\n    let payload: Value = serde_json::from_slice(&output.stdout)\n        .expect(\"summary output should be valid json\");\n\n    assert_eq!(payload[\"name\"], \"{name}\");\n    assert_eq!(payload[\"binary\"], \"{binary}\");\n    assert_eq!(payload[\"version\"], \"{version}\");\n    assert_eq!(payload[\"description\"], \"{description}\");\n    assert_eq!(payload[\"project_format\"], \"{project_format}\");\n    assert_eq!(\n        payload[\"command_groups\"].as_array().map(Vec::len),\n        Some({command_group_count})\n    );\n}}\n\n#[test]\nfn json_subcommand_response_includes_description() {{\n    let output = run_binary(&[\"--json\", \"{first_group}\", \"{first_command}\"]);\n\n    assert!(output.status.success());\n\n    let payload: Value = serde_json::from_slice(&output.stdout)\n        .expect(\"command output should be valid json\");\n\n    assert_eq!(payload[\"software\"], \"{name}\");\n    assert_eq!(payload[\"group\"], \"{first_group}\");\n    assert_eq!(payload[\"command\"], \"{first_command}\");\n    assert_eq!(payload[\"description\"], \"{first_description}\");\n}}\n",
+        name = manifest.name,
+        binary = manifest.binary,
+        version = manifest.version,
+        description = manifest.description,
+        project_format = manifest.project.format,
+        command_group_count = command_group_count,
+        first_group = first_group.name,
+        first_command = first_command.name,
+        first_description = first_command.description,
     )
+}
+
+fn render_command_group_enum(group: &CommandGroup) -> String {
+    let group_type = to_pascal_case(&group.name);
+    let variants = group
+        .commands
+        .iter()
+        .map(|command| format!("    {},\n", to_pascal_case(&command.name)))
+        .collect::<String>();
+
+    format!("#[derive(Debug, Subcommand)]\nenum {group_type}Command {{\n{variants}}}")
+}
+
+fn render_command_name_fn(group: &CommandGroup) -> String {
+    let group_type = to_pascal_case(&group.name);
+    let function_name = format!("{}_command_name", to_snake_case(&group.name));
+    let match_arms = group
+        .commands
+        .iter()
+        .map(|command| {
+            format!(
+                "        {group_type}Command::{} => \"{}\",\n",
+                to_pascal_case(&command.name),
+                command.name
+            )
+        })
+        .collect::<String>();
+
+    format!(
+        "fn {function_name}(command: &{group_type}Command) -> &'static str {{\n    match command {{\n{match_arms}    }}\n}}"
+    )
+}
+
+fn render_command_description_fn(group: &CommandGroup) -> String {
+    let group_type = to_pascal_case(&group.name);
+    let function_name = format!("{}_command_description", to_snake_case(&group.name));
+    let match_arms = group
+        .commands
+        .iter()
+        .map(|command| {
+            format!(
+                "        {group_type}Command::{} => \"{}\",\n",
+                to_pascal_case(&command.name),
+                command.description
+            )
+        })
+        .collect::<String>();
+
+    format!(
+        "fn {function_name}(command: &{group_type}Command) -> &'static str {{\n    match command {{\n{match_arms}    }}\n}}"
+    )
+}
+
+fn to_pascal_case(value: &str) -> String {
+    value
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| {
+            let mut characters = segment.chars();
+            match characters.next() {
+                Some(first) => {
+                    let mut title = first.to_uppercase().collect::<String>();
+                    title.push_str(&characters.as_str().to_lowercase());
+                    title
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<String>()
+}
+
+fn to_snake_case(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn render_value<T, F>(value: T, json: bool, text_renderer: F) -> Result<String>
@@ -669,9 +861,43 @@ mod tests {
             .expect("build should succeed");
 
         assert_eq!(result.software_name, "blender");
+        assert_eq!(result.manifest.version, "1.0.0");
+        assert_eq!(
+            result.manifest.description,
+            "3D modeling, animation, and rendering via blender --background --python"
+        );
+        assert_eq!(result.manifest.project.format, "blend");
+        assert!(
+            result
+                .manifest
+                .command_groups
+                .iter()
+                .any(|group| group.name == "render")
+        );
         assert!(result.package_root.join("Cargo.toml").exists());
         assert!(result.package_root.join("cli-anything.toml").exists());
         assert!(result.package_root.join("skills/SKILL.md").exists());
+
+        fs::remove_dir_all(&workspace).expect("workspace should be removed");
+    }
+
+    #[test]
+    fn build_uses_curated_metadata_for_drawio() {
+        let workspace = unique_test_dir("drawio");
+        fs::create_dir_all(&workspace).expect("workspace should exist");
+
+        let result = execute_build(&workspace, "./drawio", false).expect("build should succeed");
+
+        assert_eq!(result.manifest.version, "1.0.0");
+        assert_eq!(result.manifest.backend.command, "draw.io");
+        assert_eq!(result.manifest.project.state_file, ".drawio-cli.json");
+        assert!(
+            result
+                .manifest
+                .command_groups
+                .iter()
+                .any(|group| group.name == "connect")
+        );
 
         fs::remove_dir_all(&workspace).expect("workspace should be removed");
     }
@@ -720,6 +946,31 @@ mod tests {
         assert_eq!(entries[0].software_name, "shotcut");
 
         fs::remove_dir_all(&workspace).expect("workspace should be removed");
+    }
+
+    #[test]
+    fn generated_package_main_includes_summary_and_command_descriptions() {
+        let manifest = scaffold_manifest("gimp");
+        let source = render_generated_package_main_rs(&manifest);
+
+        assert!(source.contains("description: &'static str"));
+        assert!(source.contains("project_format: &'static str"));
+        assert!(source.contains("skill_path: &'static str"));
+        assert!(source.contains("fn filter_command_description"));
+        assert!(source.contains("Apply a filter to a layer"));
+        assert!(source.contains("command_response(\"filter\","));
+    }
+
+    #[test]
+    fn generated_smoke_test_covers_json_summary_and_first_command() {
+        let manifest = scaffold_manifest("gimp");
+        let source = render_generated_smoke_test(&manifest);
+
+        assert!(source.contains("serde_json::Value"));
+        assert!(source.contains("json_summary_reports_package_metadata"));
+        assert!(source.contains("json_subcommand_response_includes_description"));
+        assert!(source.contains("Raster image processing via gimp -i -b (batch mode)"));
+        assert!(source.contains("Create a new image project"));
     }
 
     fn unique_test_dir(prefix: &str) -> PathBuf {

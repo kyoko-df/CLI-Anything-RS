@@ -4,6 +4,7 @@ members = [
     "crates/cli-anything-core",
     "crates/cli-anything-repl",
     "crates/cli-anything-skillgen",
+    "packages/*",
 ]
 resolver = "3"
 

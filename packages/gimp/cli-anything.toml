@@ -1,0 +1,125 @@
+name = "gimp"
+version = "1.0.0"
+binary = "cli-anything-gimp"
+description = "Raster image processing via gimp -i -b (batch mode)"
+repl_default = true
+supports_json = true
+
+[backend]
+command = "gimp"
+system_package = "gimp (apt install gimp)"
+hard_dependency = true
+
+[project]
+format = "xcf"
+state_file = ".gimp-cli.json"
+
+[skill]
+output = "packages/gimp/skills/SKILL.md"
+template = "cli-anything-plugin/templates/SKILL.md.template"
+
+[[command_groups]]
+name = "project"
+description = "Project management commands"
+
+[[command_groups.commands]]
+name = "new"
+description = "Create a new image project"
+
+[[command_groups.commands]]
+name = "info"
+description = "Show project information"
+
+[[command_groups]]
+name = "layer"
+description = "Layer management commands"
+
+[[command_groups.commands]]
+name = "new"
+description = "Create a blank layer"
+
+[[command_groups.commands]]
+name = "list"
+description = "List project layers"
+
+[[command_groups]]
+name = "canvas"
+description = "Canvas inspection and resize commands"
+
+[[command_groups.commands]]
+name = "info"
+description = "Show canvas metadata"
+
+[[command_groups.commands]]
+name = "resize"
+description = "Resize the canvas"
+
+[[command_groups]]
+name = "filter"
+description = "Filter application commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Apply a filter to a layer"
+
+[[command_groups.commands]]
+name = "list"
+description = "List supported filters"
+
+[[command_groups]]
+name = "media"
+description = "Media import and asset inspection commands"
+
+[[command_groups.commands]]
+name = "import"
+description = "Import media into the project"
+
+[[command_groups.commands]]
+name = "list"
+description = "List project media"
+
+[[command_groups]]
+name = "export"
+description = "Export commands"
+
+[[command_groups.commands]]
+name = "image"
+description = "Export the current composition"
+
+[[command_groups.commands]]
+name = "presets"
+description = "List export presets"
+
+[[command_groups]]
+name = "session"
+description = "Session history and persistence commands"
+
+[[command_groups.commands]]
+name = "status"
+description = "Show session status"
+
+[[command_groups.commands]]
+name = "undo"
+description = "Undo the last action"
+
+[[command_groups]]
+name = "draw"
+description = "Drawing primitive commands"
+
+[[command_groups.commands]]
+name = "line"
+description = "Draw a line"
+
+[[command_groups.commands]]
+name = "rectangle"
+description = "Draw a rectangle"
+
+[[examples]]
+title = "Create poster"
+description = "Create a new raster project for poster work."
+code = "cli-anything-gimp project new --width 1920 --height 1080 -o poster.json"
+
+[[examples]]
+title = "Add filter"
+description = "Apply a brightness filter to the active layer."
+code = "cli-anything-gimp filter add brightness --layer 0 --param factor=1.3"
