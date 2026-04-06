@@ -90,7 +90,12 @@ enum FilterCommand {
 
 #[derive(Debug, Subcommand)]
 enum MediaCommand {
-    Import,
+    Import {
+        #[arg(long)]
+        path: String,
+        #[arg(long, default_value = "reference")]
+        slot: String,
+    },
     List,
 }
 
@@ -108,8 +113,26 @@ enum SessionCommand {
 
 #[derive(Debug, Subcommand)]
 enum DrawCommand {
-    Line,
-    Rectangle,
+    Line {
+        #[arg(long)]
+        x1: u32,
+        #[arg(long)]
+        y1: u32,
+        #[arg(long)]
+        x2: u32,
+        #[arg(long)]
+        y2: u32,
+    },
+    Rectangle {
+        #[arg(long)]
+        x: u32,
+        #[arg(long)]
+        y: u32,
+        #[arg(long)]
+        width: u32,
+        #[arg(long)]
+        height: u32,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -147,22 +170,10 @@ fn main() {
                 Action::Layer { command } => layer_response(command),
                 Action::Canvas { command } => canvas_response(command),
                 Action::Filter { command } => filter_response(command),
-                Action::Media { command } => command_response(
-                    "media",
-                    media_command_name(&command),
-                    media_command_description(&command),
-                ),
+                Action::Media { command } => media_response(command),
                 Action::Export { command } => export_response(command),
-                Action::Session { command } => command_response(
-                    "session",
-                    session_command_name(&command),
-                    session_command_description(&command),
-                ),
-                Action::Draw { command } => command_response(
-                    "draw",
-                    draw_command_name(&command),
-                    draw_command_description(&command),
-                ),
+                Action::Session { command } => session_response(command),
+                Action::Draw { command } => draw_response(command),
             };
             if app.json {
                 println!(
@@ -440,6 +451,126 @@ fn export_response(command: ExportCommand) -> CommandResponse {
     }
 }
 
+fn media_response(command: MediaCommand) -> CommandResponse {
+    let command_name = media_command_name(&command);
+    let description = media_command_description(&command);
+
+    match command {
+        MediaCommand::Import { path, slot } => {
+            let mut details = BTreeMap::new();
+            details.insert(
+                "asset".to_string(),
+                json!({
+                    "path": path,
+                    "slot": slot,
+                    "kind": "image",
+                    "status": "queued"
+                }),
+            );
+            command_response_with_details("media", command_name, description, details)
+        }
+        MediaCommand::List => {
+            let mut details = BTreeMap::new();
+            details.insert("asset_count".to_string(), json!(3));
+            details.insert(
+                "assets".to_string(),
+                json!([
+                    {
+                        "path": "fixtures/reference.png",
+                        "slot": "reference",
+                        "kind": "image"
+                    },
+                    {
+                        "path": "fixtures/texture.jpg",
+                        "slot": "texture",
+                        "kind": "image"
+                    },
+                    {
+                        "path": "fixtures/mask.png",
+                        "slot": "mask",
+                        "kind": "image"
+                    }
+                ]),
+            );
+            command_response_with_details("media", command_name, description, details)
+        }
+    }
+}
+
+fn session_response(command: SessionCommand) -> CommandResponse {
+    let command_name = session_command_name(&command);
+    let description = session_command_description(&command);
+
+    match command {
+        SessionCommand::Status => {
+            let mut details = BTreeMap::new();
+            details.insert(
+                "session".to_string(),
+                json!({
+                    "dirty": false,
+                    "active_tool": "paintbrush",
+                    "history_depth": 12,
+                    "autosave": "enabled"
+                }),
+            );
+            command_response_with_details("session", command_name, description, details)
+        }
+        SessionCommand::Undo => {
+            let mut details = BTreeMap::new();
+            details.insert(
+                "undone_action".to_string(),
+                json!({
+                    "name": "bucket-fill",
+                    "target": "Highlights",
+                    "history_index": 11
+                }),
+            );
+            command_response_with_details("session", command_name, description, details)
+        }
+    }
+}
+
+fn draw_response(command: DrawCommand) -> CommandResponse {
+    let command_name = draw_command_name(&command);
+    let description = draw_command_description(&command);
+
+    match command {
+        DrawCommand::Line { x1, y1, x2, y2 } => {
+            let mut details = BTreeMap::new();
+            details.insert(
+                "stroke".to_string(),
+                json!({
+                    "tool": "paintbrush",
+                    "start": { "x": x1, "y": y1 },
+                    "end": { "x": x2, "y": y2 },
+                    "color": "#000000"
+                }),
+            );
+            command_response_with_details("draw", command_name, description, details)
+        }
+        DrawCommand::Rectangle {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            let mut details = BTreeMap::new();
+            details.insert(
+                "shape".to_string(),
+                json!({
+                    "x": x,
+                    "y": y,
+                    "width": width,
+                    "height": height,
+                    "fill": "none",
+                    "stroke": "#000000"
+                }),
+            );
+            command_response_with_details("draw", command_name, description, details)
+        }
+    }
+}
+
 fn project_command_name(command: &ProjectCommand) -> &'static str {
     match command {
         ProjectCommand::New { .. } => "new",
@@ -470,7 +601,7 @@ fn filter_command_name(command: &FilterCommand) -> &'static str {
 
 fn media_command_name(command: &MediaCommand) -> &'static str {
     match command {
-        MediaCommand::Import => "import",
+        MediaCommand::Import { .. } => "import",
         MediaCommand::List => "list",
     }
 }
@@ -491,8 +622,8 @@ fn session_command_name(command: &SessionCommand) -> &'static str {
 
 fn draw_command_name(command: &DrawCommand) -> &'static str {
     match command {
-        DrawCommand::Line => "line",
-        DrawCommand::Rectangle => "rectangle",
+        DrawCommand::Line { .. } => "line",
+        DrawCommand::Rectangle { .. } => "rectangle",
     }
 }
 
@@ -526,7 +657,7 @@ fn filter_command_description(command: &FilterCommand) -> &'static str {
 
 fn media_command_description(command: &MediaCommand) -> &'static str {
     match command {
-        MediaCommand::Import => "Import media into the project",
+        MediaCommand::Import { .. } => "Import media into the project",
         MediaCommand::List => "List project media",
     }
 }
@@ -547,7 +678,7 @@ fn session_command_description(command: &SessionCommand) -> &'static str {
 
 fn draw_command_description(command: &DrawCommand) -> &'static str {
     match command {
-        DrawCommand::Line => "Draw a line",
-        DrawCommand::Rectangle => "Draw a rectangle",
+        DrawCommand::Line { .. } => "Draw a line",
+        DrawCommand::Rectangle { .. } => "Draw a rectangle",
     }
 }

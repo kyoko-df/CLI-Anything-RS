@@ -166,3 +166,120 @@ fn export_presets_json_reports_available_formats() {
     assert_eq!(payload["presets"][0]["name"], "web-png");
     assert_eq!(payload["presets"][2]["format"], "tiff");
 }
+
+#[test]
+fn media_import_json_reports_asset_metadata() {
+    let output = run_binary(&[
+        "--json",
+        "media",
+        "import",
+        "--path",
+        "fixtures/reference.png",
+        "--slot",
+        "reference",
+    ]);
+
+    assert!(output.status.success());
+
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+
+    assert_eq!(payload["group"], "media");
+    assert_eq!(payload["command"], "import");
+    assert_eq!(payload["asset"]["path"], "fixtures/reference.png");
+    assert_eq!(payload["asset"]["slot"], "reference");
+    assert_eq!(payload["asset"]["status"], "queued");
+}
+
+#[test]
+fn media_list_json_reports_imported_assets() {
+    let output = run_binary(&["--json", "media", "list"]);
+
+    assert!(output.status.success());
+
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+
+    assert_eq!(payload["group"], "media");
+    assert_eq!(payload["command"], "list");
+    assert_eq!(payload["asset_count"], 3);
+    assert_eq!(payload["assets"][0]["kind"], "image");
+    assert_eq!(payload["assets"][2]["slot"], "mask");
+}
+
+#[test]
+fn session_status_json_reports_current_checkpoint() {
+    let output = run_binary(&["--json", "session", "status"]);
+
+    assert!(output.status.success());
+
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+
+    assert_eq!(payload["group"], "session");
+    assert_eq!(payload["command"], "status");
+    assert_eq!(payload["session"]["dirty"], false);
+    assert_eq!(payload["session"]["active_tool"], "paintbrush");
+    assert_eq!(payload["session"]["history_depth"], 12);
+}
+
+#[test]
+fn session_undo_json_reports_reverted_operation() {
+    let output = run_binary(&["--json", "session", "undo"]);
+
+    assert!(output.status.success());
+
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+
+    assert_eq!(payload["group"], "session");
+    assert_eq!(payload["command"], "undo");
+    assert_eq!(payload["undone_action"]["name"], "bucket-fill");
+    assert_eq!(payload["undone_action"]["target"], "Highlights");
+}
+
+#[test]
+fn draw_line_json_reports_stroke_geometry() {
+    let output = run_binary(&[
+        "--json", "draw", "line", "--x1", "10", "--y1", "20", "--x2", "320", "--y2", "240",
+    ]);
+
+    assert!(output.status.success());
+
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+
+    assert_eq!(payload["group"], "draw");
+    assert_eq!(payload["command"], "line");
+    assert_eq!(payload["stroke"]["start"]["x"], 10);
+    assert_eq!(payload["stroke"]["end"]["y"], 240);
+    assert_eq!(payload["stroke"]["tool"], "paintbrush");
+}
+
+#[test]
+fn draw_rectangle_json_reports_bounds() {
+    let output = run_binary(&[
+        "--json",
+        "draw",
+        "rectangle",
+        "--x",
+        "64",
+        "--y",
+        "96",
+        "--width",
+        "512",
+        "--height",
+        "256",
+    ]);
+
+    assert!(output.status.success());
+
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+
+    assert_eq!(payload["group"], "draw");
+    assert_eq!(payload["command"], "rectangle");
+    assert_eq!(payload["shape"]["x"], 64);
+    assert_eq!(payload["shape"]["height"], 256);
+    assert_eq!(payload["shape"]["fill"], "none");
+}
