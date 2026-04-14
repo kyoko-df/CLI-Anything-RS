@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use cli_anything_core::CommandResponse;
 use cli_anything_repl::Skin;
 use serde::Serialize;
 
@@ -108,24 +109,15 @@ enum SessionCommand {
 
 #[derive(Debug, Serialize)]
 struct PackageSummary {
-    name: &'static str,
-    binary: &'static str,
-    version: &'static str,
-    description: &'static str,
-    project_format: &'static str,
-    skill_path: &'static str,
-    command_groups: Vec<&'static str>,
+    name: String,
+    binary: String,
+    version: String,
+    description: String,
+    project_format: String,
+    skill_path: String,
+    command_groups: Vec<String>,
     supports_json: bool,
     repl_default: bool,
-}
-
-#[derive(Debug, Serialize)]
-struct CommandResponse {
-    software: &'static str,
-    binary: &'static str,
-    group: &'static str,
-    command: &'static str,
-    description: &'static str,
 }
 
 fn main() {
@@ -192,7 +184,7 @@ fn main() {
                     "{}",
                     skin.info(&format!("{} -> {}", response.group, response.command))
                 );
-                println!("{}", skin.status("detail", response.description));
+                println!("{}", skin.status("detail", &response.description));
             }
         }
         None => {
@@ -217,13 +209,14 @@ fn main() {
 
 fn package_summary() -> PackageSummary {
     PackageSummary {
-        name: "blender",
-        binary: "cli-anything-blender",
-        version: "1.0.0",
-        description: "3D modeling, animation, and rendering via blender --background --python",
-        project_format: "blend",
-        skill_path: "packages/blender/skills/SKILL.md",
-        command_groups: vec![
+        name: "blender".to_string(),
+        binary: "cli-anything-blender".to_string(),
+        version: "1.0.0".to_string(),
+        description: "3D modeling, animation, and rendering via blender --background --python"
+            .to_string(),
+        project_format: "blend".to_string(),
+        skill_path: "packages/blender/skills/SKILL.md".to_string(),
+        command_groups: [
             "scene",
             "object",
             "material",
@@ -233,7 +226,10 @@ fn package_summary() -> PackageSummary {
             "animation",
             "render",
             "session",
-        ],
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect(),
         supports_json: true,
         repl_default: true,
     }
@@ -244,13 +240,13 @@ fn command_response(
     command: &'static str,
     description: &'static str,
 ) -> CommandResponse {
-    CommandResponse {
-        software: "blender",
-        binary: "cli-anything-blender",
+    CommandResponse::new(
+        "blender",
+        "cli-anything-blender",
         group,
         command,
         description,
-    }
+    )
 }
 
 fn scene_command_name(command: &SceneCommand) -> &'static str {

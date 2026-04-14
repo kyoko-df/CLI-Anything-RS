@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CliAnythingManifest {
@@ -186,6 +188,98 @@ pub struct KnownPackageSpec {
     pub state_file: String,
     pub command_groups: Vec<CommandGroup>,
     pub examples: Vec<ExampleSpec>,
+}
+
+pub type ResponseDetails = BTreeMap<String, Value>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackageSummary {
+    pub name: String,
+    pub binary: String,
+    pub version: String,
+    pub description: String,
+    pub project_format: String,
+    pub skill_path: String,
+    pub command_groups: Vec<String>,
+    pub supports_json: bool,
+    pub repl_default: bool,
+}
+
+impl PackageSummary {
+    pub fn new(
+        name: impl Into<String>,
+        binary: impl Into<String>,
+        version: impl Into<String>,
+        description: impl Into<String>,
+        project_format: impl Into<String>,
+        skill_path: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            binary: binary.into(),
+            version: version.into(),
+            description: description.into(),
+            project_format: project_format.into(),
+            skill_path: skill_path.into(),
+            command_groups: Vec::new(),
+            supports_json: false,
+            repl_default: false,
+        }
+    }
+
+    pub fn with_command_groups(
+        mut self,
+        command_groups: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.command_groups = command_groups.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn with_modes(mut self, supports_json: bool, repl_default: bool) -> Self {
+        self.supports_json = supports_json;
+        self.repl_default = repl_default;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandResponse {
+    pub software: String,
+    pub binary: String,
+    pub group: String,
+    pub command: String,
+    pub description: String,
+    #[serde(flatten)]
+    pub details: ResponseDetails,
+}
+
+impl CommandResponse {
+    pub fn new(
+        software: impl Into<String>,
+        binary: impl Into<String>,
+        group: impl Into<String>,
+        command: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        Self {
+            software: software.into(),
+            binary: binary.into(),
+            group: group.into(),
+            command: command.into(),
+            description: description.into(),
+            details: ResponseDetails::new(),
+        }
+    }
+
+    pub fn with_detail(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.details.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn with_details(mut self, details: ResponseDetails) -> Self {
+        self.details.extend(details);
+        self
+    }
 }
 
 pub fn parse_manifest(input: &str) -> Result<CliAnythingManifest> {
@@ -690,9 +784,11 @@ fn example(title: &str, description: &str, code: &str) -> ExampleSpec {
 #[cfg(test)]
 mod tests {
     use super::{
-        BuiltinCommandId, builtin_command_documents, builtin_package_spec, builtin_package_specs,
-        command_document, package_layout, parse_manifest, parse_source_target,
+        BuiltinCommandId, CommandResponse, PackageSummary, builtin_command_documents,
+        builtin_package_spec, builtin_package_specs, command_document, package_layout,
+        parse_manifest, parse_source_target,
     };
+    use serde_json::json;
     use std::path::Path;
 
     const SAMPLE_MANIFEST: &str = r#"
@@ -874,5 +970,43 @@ template = "templates/skill/SKILL.md.template"
                 .iter()
                 .any(|group| group.name == "filter")
         );
+    }
+
+    #[test]
+    fn package_summary_builder_collects_owned_metadata() {
+        let summary = PackageSummary::new(
+            "gimp",
+            "cli-anything-gimp",
+            "1.0.0",
+            "Raster image processing via gimp -i -b (batch mode)",
+            "xcf",
+            "packages/gimp/skills/SKILL.md",
+        )
+        .with_command_groups(["project", "layer", "filter"])
+        .with_modes(true, true);
+
+        assert_eq!(summary.name, "gimp");
+        assert_eq!(summary.project_format, "xcf");
+        assert_eq!(summary.command_groups, ["project", "layer", "filter"]);
+        assert!(summary.supports_json);
+    }
+
+    #[test]
+    fn command_response_builder_flattens_details_when_serialized() {
+        let response = CommandResponse::new(
+            "gimp",
+            "cli-anything-gimp",
+            "project",
+            "new",
+            "Create a new image project",
+        )
+        .with_detail("project", json!({ "name": "poster", "width": 2048 }))
+        .with_details(std::iter::once(("status".to_string(), json!("queued"))).collect());
+
+        let payload = serde_json::to_value(&response).expect("response should serialize");
+
+        assert_eq!(payload["group"], "project");
+        assert_eq!(payload["project"]["name"], "poster");
+        assert_eq!(payload["status"], "queued");
     }
 }

@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
+use cli_anything_core::{CommandResponse, PackageSummary, ResponseDetails};
 use cli_anything_repl::Skin;
-use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Parser)]
@@ -135,30 +135,6 @@ enum DrawCommand {
     },
 }
 
-#[derive(Debug, Serialize)]
-struct PackageSummary {
-    name: &'static str,
-    binary: &'static str,
-    version: &'static str,
-    description: &'static str,
-    project_format: &'static str,
-    skill_path: &'static str,
-    command_groups: Vec<&'static str>,
-    supports_json: bool,
-    repl_default: bool,
-}
-
-#[derive(Debug, Serialize)]
-struct CommandResponse {
-    software: &'static str,
-    binary: &'static str,
-    group: &'static str,
-    command: &'static str,
-    description: &'static str,
-    #[serde(flatten)]
-    details: BTreeMap<String, Value>,
-}
-
 fn main() {
     let app = App::parse();
     let skin = Skin::new("gimp", "1.0.0").with_skill_path("skills/SKILL.md");
@@ -186,7 +162,7 @@ fn main() {
                     "{}",
                     skin.info(&format!("{} -> {}", response.group, response.command))
                 );
-                println!("{}", skin.status("detail", response.description));
+                println!("{}", skin.status("detail", &response.description));
                 if !response.details.is_empty() {
                     println!(
                         "{}",
@@ -224,15 +200,18 @@ fn main() {
 
 fn package_summary() -> PackageSummary {
     PackageSummary {
-        name: "gimp",
-        binary: "cli-anything-gimp",
-        version: "1.0.0",
-        description: "Raster image processing via gimp -i -b (batch mode)",
-        project_format: "xcf",
-        skill_path: "packages/gimp/skills/SKILL.md",
-        command_groups: vec![
+        name: "gimp".to_string(),
+        binary: "cli-anything-gimp".to_string(),
+        version: "1.0.0".to_string(),
+        description: "Raster image processing via gimp -i -b (batch mode)".to_string(),
+        project_format: "xcf".to_string(),
+        skill_path: "packages/gimp/skills/SKILL.md".to_string(),
+        command_groups: [
             "project", "layer", "canvas", "filter", "media", "export", "session", "draw",
-        ],
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect(),
         supports_json: true,
         repl_default: true,
     }
@@ -243,23 +222,17 @@ fn command_response(
     command: &'static str,
     description: &'static str,
 ) -> CommandResponse {
-    command_response_with_details(group, command, description, BTreeMap::new())
+    command_response_with_details(group, command, description, ResponseDetails::new())
 }
 
 fn command_response_with_details(
     group: &'static str,
     command: &'static str,
     description: &'static str,
-    details: BTreeMap<String, Value>,
+    details: ResponseDetails,
 ) -> CommandResponse {
-    CommandResponse {
-        software: "gimp",
-        binary: "cli-anything-gimp",
-        group,
-        command,
-        description,
-        details,
-    }
+    CommandResponse::new("gimp", "cli-anything-gimp", group, command, description)
+        .with_details(details)
 }
 
 fn project_response(command: ProjectCommand) -> CommandResponse {
