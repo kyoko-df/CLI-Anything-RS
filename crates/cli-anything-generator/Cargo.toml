@@ -1,5 +1,5 @@
 [package]
-name = "cli-anything-core"
+name = "cli-anything-generator"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,5 +8,5 @@ authors.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 cli-anything-manifest = { path = "../cli-anything-manifest" }
-serde = { workspace = true }
-serde_json = { workspace = true }
+cli-anything-skillgen = { path = "../cli-anything-skillgen" }
+toml = { workspace = true }

@@ -1,12 +1,18 @@
 [package]
 name = "cli-anything-cli"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
 cli-anything-core = { path = "../cli-anything-core" }
+cli-anything-generator = { path = "../cli-anything-generator" }
+cli-anything-integrations = { path = "../cli-anything-integrations" }
+cli-anything-manifest = { path = "../cli-anything-manifest" }
+cli-anything-project = { path = "../cli-anything-project" }
 cli-anything-repl = { path = "../cli-anything-repl" }
 cli-anything-skillgen = { path = "../cli-anything-skillgen" }
 serde = { workspace = true }

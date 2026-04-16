@@ -4,13 +4,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cli_anything_core::{
-    BackendConfig, BuiltinCommandId, CliAnythingManifest, CommandGroup, CommandSpec, ExampleSpec,
-    ProjectConfig, SkillConfig, ValidationCategory, ValidationCheck, ValidationReport,
-    builtin_command_documents, builtin_package_spec, command_document, load_manifest_from_path,
-    package_layout, parse_source_target,
+    BuiltinCommandId, CliAnythingManifest, ValidationCategory, ValidationCheck, ValidationReport,
+    builtin_command_documents, command_document, load_manifest_from_path, package_layout,
+    parse_source_target,
 };
+use cli_anything_generator::{GeneratedPackage, generate_package};
 use cli_anything_repl::Skin;
-use cli_anything_skillgen::generate_skill_file;
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -24,6 +23,12 @@ struct App {
 #[derive(Debug, Subcommand)]
 enum Action {
     Status {
+        #[arg(long)]
+        json: bool,
+    },
+    Init {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -71,6 +76,14 @@ struct CommandSummary {
     name: String,
     usage: String,
     summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct InitResult {
+    workspace_root: PathBuf,
+    created: bool,
+    files: Vec<PathBuf>,
+    directories: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -125,6 +138,10 @@ fn run(app: App) -> Result<()> {
         std::env::current_dir().context("failed to determine current directory")?;
     let output = match app.command.unwrap_or(Action::Status { json: false }) {
         Action::Status { json } => render_value(status_view(), json, render_status_text)?,
+        Action::Init { path, json } => {
+            let result = execute_init(&path)?;
+            render_value(result, json, render_init_text)?
+        }
         Action::Build {
             source,
             dry_run,
@@ -176,60 +193,93 @@ fn status_view() -> StatusView {
     }
 }
 
-fn execute_build(workspace_root: &Path, source: &str, dry_run: bool) -> Result<BuildResult> {
-    let target = parse_source_target(source)?;
-    let layout = package_layout(workspace_root, &target.software_name);
-    let manifest = scaffold_manifest(&target.software_name);
-    let generated_files = vec![
-        layout.cargo_toml.clone(),
-        layout.manifest.clone(),
-        layout.src_main.clone(),
-        layout.skill_file.clone(),
-        layout.tests_dir.join("smoke.rs"),
-        layout.fixtures_dir.join(".keep"),
+const INIT_WORKSPACE_CARGO_TOML: &str = r#"[workspace]
+members = [
+    "crates/*",
+    "packages/*",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+authors = ["cli-anything contributors"]
+
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+"#;
+
+const INIT_README: &str = r#"# cli-anything workspace
+
+This workspace was scaffolded with `cli-anything init`. Generated packages live
+under `packages/<software>/`; shared framework crates live under `crates/`.
+
+## Next steps
+
+- Run `cli-anything build <software-path-or-repo>` to scaffold a package.
+- Run `cli-anything list` to see what has been generated so far.
+- Run `cli-anything validate <software>` to verify the package layout.
+"#;
+
+const INIT_GITIGNORE: &str = "/target\n";
+
+fn execute_init(path: &Path) -> Result<InitResult> {
+    let already_initialized = path.join("Cargo.toml").exists();
+    let directories = vec![
+        path.to_path_buf(),
+        path.join("crates"),
+        path.join("packages"),
+    ];
+    let files = vec![
+        path.join("Cargo.toml"),
+        path.join("README.md"),
+        path.join(".gitignore"),
     ];
 
-    if !dry_run {
-        fs::create_dir_all(&layout.src_dir)
-            .with_context(|| format!("failed to create {}", layout.src_dir.display()))?;
-        fs::create_dir_all(&layout.skills_dir)
-            .with_context(|| format!("failed to create {}", layout.skills_dir.display()))?;
-        fs::create_dir_all(&layout.tests_dir)
-            .with_context(|| format!("failed to create {}", layout.tests_dir.display()))?;
-        fs::create_dir_all(&layout.fixtures_dir)
-            .with_context(|| format!("failed to create {}", layout.fixtures_dir.display()))?;
-
-        fs::write(
-            &layout.cargo_toml,
-            render_generated_package_cargo_toml(&manifest),
-        )
-        .with_context(|| format!("failed to write {}", layout.cargo_toml.display()))?;
-        fs::write(
-            &layout.manifest,
-            toml::to_string_pretty(&manifest).context("failed to encode manifest")?,
-        )
-        .with_context(|| format!("failed to write {}", layout.manifest.display()))?;
-        fs::write(
-            &layout.src_main,
-            render_generated_package_main_rs(&manifest),
-        )
-        .with_context(|| format!("failed to write {}", layout.src_main.display()))?;
-        fs::write(
-            layout.tests_dir.join("smoke.rs"),
-            render_generated_smoke_test(&manifest),
-        )
-        .with_context(|| format!("failed to write {}", layout.tests_dir.display()))?;
-        fs::write(layout.fixtures_dir.join(".keep"), "")
-            .with_context(|| format!("failed to write {}", layout.fixtures_dir.display()))?;
-        generate_skill_file(&manifest, Some(&layout.skill_file))?;
+    for dir in &directories {
+        fs::create_dir_all(dir).with_context(|| format!("failed to create {}", dir.display()))?;
     }
+
+    if !already_initialized {
+        fs::write(&files[0], INIT_WORKSPACE_CARGO_TOML)
+            .with_context(|| format!("failed to write {}", files[0].display()))?;
+    }
+    if !files[1].exists() {
+        fs::write(&files[1], INIT_README)
+            .with_context(|| format!("failed to write {}", files[1].display()))?;
+    }
+    if !files[2].exists() {
+        fs::write(&files[2], INIT_GITIGNORE)
+            .with_context(|| format!("failed to write {}", files[2].display()))?;
+    }
+
+    Ok(InitResult {
+        workspace_root: path.to_path_buf(),
+        created: !already_initialized,
+        files,
+        directories,
+    })
+}
+
+fn execute_build(workspace_root: &Path, source: &str, dry_run: bool) -> Result<BuildResult> {
+    let target = parse_source_target(source)?;
+    let GeneratedPackage {
+        manifest,
+        layout,
+        files,
+    } = generate_package(workspace_root, &target.software_name, dry_run)?;
 
     Ok(BuildResult {
         software_name: target.software_name,
         source: source.to_string(),
         dry_run,
         package_root: layout.root,
-        generated_files,
+        generated_files: files,
         manifest,
     })
 }
@@ -452,280 +502,6 @@ fn collect_manifest_paths(
     Ok(())
 }
 
-fn scaffold_manifest(software_name: &str) -> CliAnythingManifest {
-    if let Some(spec) = builtin_package_spec(software_name) {
-        return CliAnythingManifest {
-            name: spec.name.clone(),
-            version: "1.0.0".to_string(),
-            binary: format!("cli-anything-{}", spec.name),
-            description: spec.description,
-            repl_default: true,
-            supports_json: true,
-            backend: BackendConfig {
-                command: spec.backend_command,
-                system_package: spec.system_package,
-                hard_dependency: true,
-            },
-            project: ProjectConfig {
-                format: spec.project_format,
-                state_file: spec.state_file,
-            },
-            skill: SkillConfig {
-                output: format!("packages/{software_name}/skills/SKILL.md"),
-                template: "cli-anything-plugin/templates/SKILL.md.template".to_string(),
-            },
-            command_groups: spec.command_groups,
-            examples: spec.examples,
-        };
-    }
-
-    CliAnythingManifest {
-        name: software_name.to_string(),
-        version: "0.1.0".to_string(),
-        binary: format!("cli-anything-{software_name}"),
-        description: format!("Rust CLI package for {software_name}"),
-        repl_default: true,
-        supports_json: true,
-        backend: BackendConfig {
-            command: software_name.to_string(),
-            system_package: software_name.to_string(),
-            hard_dependency: true,
-        },
-        project: ProjectConfig {
-            format: "json".to_string(),
-            state_file: format!(".{software_name}-cli.json"),
-        },
-        skill: SkillConfig {
-            output: format!("packages/{software_name}/skills/SKILL.md"),
-            template: "cli-anything-plugin/templates/SKILL.md.template".to_string(),
-        },
-        command_groups: vec![
-            CommandGroup {
-                name: "project".to_string(),
-                description: "Project lifecycle commands".to_string(),
-                commands: vec![
-                    CommandSpec {
-                        name: "new".to_string(),
-                        description: "Create a new project or scene".to_string(),
-                    },
-                    CommandSpec {
-                        name: "info".to_string(),
-                        description: "Inspect the current project state".to_string(),
-                    },
-                ],
-            },
-            CommandGroup {
-                name: "session".to_string(),
-                description: "Session state and history commands".to_string(),
-                commands: vec![
-                    CommandSpec {
-                        name: "undo".to_string(),
-                        description: "Undo the last operation".to_string(),
-                    },
-                    CommandSpec {
-                        name: "redo".to_string(),
-                        description: "Redo the last undone operation".to_string(),
-                    },
-                ],
-            },
-        ],
-        examples: vec![ExampleSpec {
-            title: "Start a new project".to_string(),
-            description: "Create a fresh state file for the generated package.".to_string(),
-            code: format!("cli-anything-{software_name} project new -o demo.json"),
-        }],
-    }
-}
-
-fn render_generated_package_cargo_toml(manifest: &CliAnythingManifest) -> String {
-    format!(
-        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2024\"\n\n[dependencies]\nclap = {{ version = \"4.5\", features = [\"derive\"] }}\ncli-anything-repl = {{ path = \"../../crates/cli-anything-repl\" }}\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n",
-        manifest.binary, manifest.version
-    )
-}
-
-fn render_generated_package_main_rs(manifest: &CliAnythingManifest) -> String {
-    let action_variants = manifest
-        .command_groups
-        .iter()
-        .map(|group| {
-            let group_type = to_pascal_case(&group.name);
-            format!(
-                "    {group_type} {{\n        #[command(subcommand)]\n        command: {group_type}Command,\n    }},\n"
-            )
-        })
-        .collect::<String>();
-    let command_enums = manifest
-        .command_groups
-        .iter()
-        .map(render_command_group_enum)
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let command_name_fns = manifest
-        .command_groups
-        .iter()
-        .map(render_command_name_fn)
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let command_description_fns = manifest
-        .command_groups
-        .iter()
-        .map(render_command_description_fn)
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let command_match_arms = manifest
-        .command_groups
-        .iter()
-        .map(|group| {
-            let group_type = to_pascal_case(&group.name);
-            let helper_name = format!("{}_command_name", to_snake_case(&group.name));
-            let helper_description =
-                format!("{}_command_description", to_snake_case(&group.name));
-            format!(
-                "        Action::{group_type} {{ command }} => command_response(\"{group_name}\", {helper_name}(&command), {helper_description}(&command)),\n",
-                group_name = group.name,
-            )
-        })
-        .collect::<String>();
-    let command_groups = manifest
-        .command_groups
-        .iter()
-        .map(|group| format!("\"{}\"", group.name))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let command_group_list = manifest
-        .command_groups
-        .iter()
-        .map(|group| group.name.clone())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let skill_path = manifest.skill.output.clone();
-
-    format!(
-        "use clap::{{Parser, Subcommand}};\nuse cli_anything_repl::Skin;\nuse serde::Serialize;\n\n#[derive(Debug, Parser)]\n#[command(name = \"{binary}\")]\n#[command(about = \"{description}\")]\nstruct App {{\n    #[arg(long)]\n    json: bool,\n    #[command(subcommand)]\n    action: Option<Action>,\n}}\n\n#[derive(Debug, Subcommand)]\nenum Action {{\n{action_variants}}}\n\n{command_enums}\n\n#[derive(Debug, Serialize)]\nstruct PackageSummary {{\n    name: &'static str,\n    binary: &'static str,\n    version: &'static str,\n    description: &'static str,\n    project_format: &'static str,\n    skill_path: &'static str,\n    command_groups: Vec<&'static str>,\n    supports_json: bool,\n    repl_default: bool,\n}}\n\n#[derive(Debug, Serialize)]\nstruct CommandResponse {{\n    software: &'static str,\n    binary: &'static str,\n    group: &'static str,\n    command: &'static str,\n    description: &'static str,\n}}\n\nfn main() {{\n    let app = App::parse();\n    let skin = Skin::new(\"{name}\", \"{version}\").with_skill_path(\"skills/SKILL.md\");\n\n    match app.action {{\n        Some(action) => {{\n            let response = match action {{\n{command_match_arms}            }};\n            if app.json {{\n                println!(\"{{}}\", serde_json::to_string_pretty(&response).expect(\"command response should serialize\"));\n            }} else {{\n                println!(\"{{}}\", skin.info(&format!(\"{{}} -> {{}}\", response.group, response.command)));\n                println!(\"{{}}\", skin.status(\"detail\", response.description));\n            }}\n        }}\n        None => {{\n            let summary = package_summary();\n            if app.json {{\n                println!(\"{{}}\", serde_json::to_string_pretty(&summary).expect(\"package summary should serialize\"));\n            }} else {{\n                for line in skin.banner_lines() {{\n                    println!(\"{{line}}\");\n                }}\n                println!(\"{{}}\", skin.status(\"binary\", \"{binary}\"));\n                println!(\"{{}}\", skin.status(\"format\", \"{project_format}\"));\n                println!(\"{{}}\", skin.status(\"groups\", \"{command_group_list}\"));\n            }}\n        }}\n    }}\n}}\n\nfn package_summary() -> PackageSummary {{\n    PackageSummary {{\n        name: \"{name}\",\n        binary: \"{binary}\",\n        version: \"{version}\",\n        description: \"{description}\",\n        project_format: \"{project_format}\",\n        skill_path: \"{skill_path}\",\n        command_groups: vec![{command_groups}],\n        supports_json: true,\n        repl_default: true,\n    }}\n}}\n\nfn command_response(group: &'static str, command: &'static str, description: &'static str) -> CommandResponse {{\n    CommandResponse {{\n        software: \"{name}\",\n        binary: \"{binary}\",\n        group,\n        command,\n        description,\n    }}\n}}\n\n{command_name_fns}\n\n{command_description_fns}\n",
-        name = manifest.name,
-        binary = manifest.binary,
-        description = manifest.description,
-        version = manifest.version,
-        project_format = manifest.project.format,
-        skill_path = skill_path,
-        action_variants = action_variants,
-        command_enums = command_enums,
-        command_match_arms = command_match_arms,
-        command_groups = command_groups,
-        command_group_list = command_group_list,
-        command_name_fns = command_name_fns,
-        command_description_fns = command_description_fns,
-    )
-}
-
-fn render_generated_smoke_test(manifest: &CliAnythingManifest) -> String {
-    let first_group = manifest
-        .command_groups
-        .first()
-        .expect("generated package should include at least one command group");
-    let first_command = first_group
-        .commands
-        .first()
-        .expect("generated package should include at least one command");
-    let command_group_count = manifest.command_groups.len();
-
-    format!(
-        "use std::process::Command;\n\nuse serde_json::Value;\n\nfn run_binary(args: &[&str]) -> std::process::Output {{\n    Command::new(env!(\"CARGO_BIN_EXE_{binary}\"))\n        .args(args)\n        .output()\n        .expect(\"generated binary should run\")\n}}\n\n#[test]\nfn binary_name_is_stable() {{\n    assert_eq!(\"{binary}\", \"{binary}\");\n}}\n\n#[test]\nfn json_summary_reports_package_metadata() {{\n    let output = run_binary(&[\"--json\"]);\n\n    assert!(output.status.success());\n\n    let payload: Value = serde_json::from_slice(&output.stdout)\n        .expect(\"summary output should be valid json\");\n\n    assert_eq!(payload[\"name\"], \"{name}\");\n    assert_eq!(payload[\"binary\"], \"{binary}\");\n    assert_eq!(payload[\"version\"], \"{version}\");\n    assert_eq!(payload[\"description\"], \"{description}\");\n    assert_eq!(payload[\"project_format\"], \"{project_format}\");\n    assert_eq!(\n        payload[\"command_groups\"].as_array().map(Vec::len),\n        Some({command_group_count})\n    );\n}}\n\n#[test]\nfn json_subcommand_response_includes_description() {{\n    let output = run_binary(&[\"--json\", \"{first_group}\", \"{first_command}\"]);\n\n    assert!(output.status.success());\n\n    let payload: Value = serde_json::from_slice(&output.stdout)\n        .expect(\"command output should be valid json\");\n\n    assert_eq!(payload[\"software\"], \"{name}\");\n    assert_eq!(payload[\"group\"], \"{first_group}\");\n    assert_eq!(payload[\"command\"], \"{first_command}\");\n    assert_eq!(payload[\"description\"], \"{first_description}\");\n}}\n",
-        name = manifest.name,
-        binary = manifest.binary,
-        version = manifest.version,
-        description = manifest.description,
-        project_format = manifest.project.format,
-        command_group_count = command_group_count,
-        first_group = first_group.name,
-        first_command = first_command.name,
-        first_description = first_command.description,
-    )
-}
-
-fn render_command_group_enum(group: &CommandGroup) -> String {
-    let group_type = to_pascal_case(&group.name);
-    let variants = group
-        .commands
-        .iter()
-        .map(|command| format!("    {},\n", to_pascal_case(&command.name)))
-        .collect::<String>();
-
-    format!("#[derive(Debug, Subcommand)]\nenum {group_type}Command {{\n{variants}}}")
-}
-
-fn render_command_name_fn(group: &CommandGroup) -> String {
-    let group_type = to_pascal_case(&group.name);
-    let function_name = format!("{}_command_name", to_snake_case(&group.name));
-    let match_arms = group
-        .commands
-        .iter()
-        .map(|command| {
-            format!(
-                "        {group_type}Command::{} => \"{}\",\n",
-                to_pascal_case(&command.name),
-                command.name
-            )
-        })
-        .collect::<String>();
-
-    format!(
-        "fn {function_name}(command: &{group_type}Command) -> &'static str {{\n    match command {{\n{match_arms}    }}\n}}"
-    )
-}
-
-fn render_command_description_fn(group: &CommandGroup) -> String {
-    let group_type = to_pascal_case(&group.name);
-    let function_name = format!("{}_command_description", to_snake_case(&group.name));
-    let match_arms = group
-        .commands
-        .iter()
-        .map(|command| {
-            format!(
-                "        {group_type}Command::{} => \"{}\",\n",
-                to_pascal_case(&command.name),
-                command.description
-            )
-        })
-        .collect::<String>();
-
-    format!(
-        "fn {function_name}(command: &{group_type}Command) -> &'static str {{\n    match command {{\n{match_arms}    }}\n}}"
-    )
-}
-
-fn to_pascal_case(value: &str) -> String {
-    value
-        .split(|character: char| !character.is_ascii_alphanumeric())
-        .filter(|segment| !segment.is_empty())
-        .map(|segment| {
-            let mut characters = segment.chars();
-            match characters.next() {
-                Some(first) => {
-                    let mut title = first.to_uppercase().collect::<String>();
-                    title.push_str(&characters.as_str().to_lowercase());
-                    title
-                }
-                None => String::new(),
-            }
-        })
-        .collect::<String>()
-}
-
-fn to_snake_case(value: &str) -> String {
-    value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
 fn render_value<T, F>(value: T, json: bool, text_renderer: F) -> Result<String>
 where
     T: Serialize,
@@ -744,6 +520,35 @@ fn render_status_text(view: &StatusView) -> String {
     for command in &view.commands {
         lines.push(format!("{} — {}", command.usage, command.summary));
     }
+    lines.join("\n")
+}
+
+fn render_init_text(result: &InitResult) -> String {
+    let mut lines = vec![
+        format!("workspace: {}", result.workspace_root.display()),
+        format!(
+            "status: {}",
+            if result.created {
+                "initialized"
+            } else {
+                "already-initialized"
+            }
+        ),
+        "directories:".to_string(),
+    ];
+    lines.extend(
+        result
+            .directories
+            .iter()
+            .map(|path| format!("- {}", path.display())),
+    );
+    lines.push("files:".to_string());
+    lines.extend(
+        result
+            .files
+            .iter()
+            .map(|path| format!("- {}", path.display())),
+    );
     lines.join("\n")
 }
 
@@ -852,6 +657,14 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn unique_test_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be valid")
+            .as_nanos();
+        std::env::temp_dir().join(format!("cli-anything-rs-{prefix}-{nanos}"))
+    }
+
     #[test]
     fn build_creates_package_scaffold() {
         let workspace = unique_test_dir("build");
@@ -949,35 +762,29 @@ mod tests {
     }
 
     #[test]
-    fn generated_package_main_includes_summary_and_command_descriptions() {
-        let manifest = scaffold_manifest("gimp");
-        let source = render_generated_package_main_rs(&manifest);
+    fn init_creates_workspace_scaffold() {
+        let workspace = unique_test_dir("init");
+        let result = execute_init(&workspace).expect("init should succeed");
 
-        assert!(source.contains("description: &'static str"));
-        assert!(source.contains("project_format: &'static str"));
-        assert!(source.contains("skill_path: &'static str"));
-        assert!(source.contains("fn filter_command_description"));
-        assert!(source.contains("Apply a filter to a layer"));
-        assert!(source.contains("command_response(\"filter\","));
+        assert!(result.created);
+        assert!(workspace.join("Cargo.toml").exists());
+        assert!(workspace.join("README.md").exists());
+        assert!(workspace.join(".gitignore").exists());
+        assert!(workspace.join("crates").is_dir());
+        assert!(workspace.join("packages").is_dir());
+
+        fs::remove_dir_all(&workspace).expect("workspace should be removed");
     }
 
     #[test]
-    fn generated_smoke_test_covers_json_summary_and_first_command() {
-        let manifest = scaffold_manifest("gimp");
-        let source = render_generated_smoke_test(&manifest);
+    fn init_is_idempotent_on_existing_workspace() {
+        let workspace = unique_test_dir("init-idem");
+        execute_init(&workspace).expect("first init should succeed");
+        let second = execute_init(&workspace).expect("second init should succeed");
 
-        assert!(source.contains("serde_json::Value"));
-        assert!(source.contains("json_summary_reports_package_metadata"));
-        assert!(source.contains("json_subcommand_response_includes_description"));
-        assert!(source.contains("Raster image processing via gimp -i -b (batch mode)"));
-        assert!(source.contains("Create a new image project"));
-    }
+        assert!(!second.created);
+        assert!(workspace.join("Cargo.toml").exists());
 
-    fn unique_test_dir(prefix: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be valid")
-            .as_nanos();
-        std::env::temp_dir().join(format!("cli-anything-rs-cli-{prefix}-{nanos}"))
+        fs::remove_dir_all(&workspace).expect("workspace should be removed");
     }
 }
