@@ -2,6 +2,10 @@
 members = [
     "crates/cli-anything-cli",
     "crates/cli-anything-core",
+    "crates/cli-anything-generator",
+    "crates/cli-anything-integrations",
+    "crates/cli-anything-manifest",
+    "crates/cli-anything-project",
     "crates/cli-anything-repl",
     "crates/cli-anything-skillgen",
     "packages/*",
