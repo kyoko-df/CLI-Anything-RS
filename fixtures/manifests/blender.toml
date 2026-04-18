@@ -1,0 +1,137 @@
+name = "blender"
+version = "1.0.0"
+binary = "cli-anything-blender"
+description = "3D modeling, animation, and rendering via blender --background --python"
+repl_default = true
+supports_json = true
+
+[backend]
+command = "blender"
+system_package = "blender"
+hard_dependency = true
+
+[project]
+format = "blend"
+state_file = ".blender-cli.json"
+
+[skill]
+output = "packages/blender/skills/SKILL.md"
+template = "cli-anything-plugin/templates/SKILL.md.template"
+
+[[command_groups]]
+name = "scene"
+description = "Scene management commands"
+
+[[command_groups.commands]]
+name = "new"
+description = "Create a new scene"
+
+[[command_groups.commands]]
+name = "info"
+description = "Inspect the active scene"
+
+[[command_groups]]
+name = "object"
+description = "Object creation and transformation commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Add a new object"
+
+[[command_groups.commands]]
+name = "list"
+description = "List scene objects"
+
+[[command_groups]]
+name = "material"
+description = "Material authoring commands"
+
+[[command_groups.commands]]
+name = "assign"
+description = "Assign a material"
+
+[[command_groups.commands]]
+name = "list"
+description = "List materials"
+
+[[command_groups]]
+name = "modifier"
+description = "Modifier stack commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Add a modifier"
+
+[[command_groups.commands]]
+name = "apply"
+description = "Apply a modifier"
+
+[[command_groups]]
+name = "camera"
+description = "Camera rig commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Add a camera"
+
+[[command_groups.commands]]
+name = "list"
+description = "List cameras"
+
+[[command_groups]]
+name = "light"
+description = "Lighting commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Add a light"
+
+[[command_groups.commands]]
+name = "list"
+description = "List lights"
+
+[[command_groups]]
+name = "animation"
+description = "Animation timeline commands"
+
+[[command_groups.commands]]
+name = "keyframe"
+description = "Insert a keyframe"
+
+[[command_groups.commands]]
+name = "playblast"
+description = "Preview the animation"
+
+[[command_groups]]
+name = "render"
+description = "Rendering commands"
+
+[[command_groups.commands]]
+name = "frame"
+description = "Render a frame"
+
+[[command_groups.commands]]
+name = "info"
+description = "Inspect render settings"
+
+[[command_groups]]
+name = "session"
+description = "Session tracking commands"
+
+[[command_groups.commands]]
+name = "status"
+description = "Show session state"
+
+[[command_groups.commands]]
+name = "history"
+description = "Inspect action history"
+
+[[examples]]
+title = "Create scene"
+description = "Create a fresh Blender scene file."
+code = "cli-anything-blender scene new -o demo.blend"
+
+[[examples]]
+title = "Render frame"
+description = "Render the active frame to a PNG file."
+code = "cli-anything-blender render frame --output frame.png"

@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cli_anything_core::{CommandResponse, PackageSummary, ResponseDetails};
+use cli_anything_project::backend::{
+    Backend, BackendInvocation, BackendOutcome, BackendStatus, backend_from_env,
+};
 use cli_anything_project::{
     ActionRecord, ProjectState, load_or_seed_state, resolve_state_file, save_state,
 };
@@ -8,11 +11,13 @@ use cli_anything_repl::{DispatchOutcome, Repl, Skin};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::io::{self, IsTerminal};
+use std::sync::Arc;
 
 const SOFTWARE: &str = "blender";
 const BINARY: &str = "cli-anything-blender";
 const VERSION: &str = "1.0.0";
 const PROJECT_FORMAT: &str = "blend";
+const BACKEND_CMD: &str = "blender";
 
 #[derive(Debug, Parser)]
 #[command(name = "cli-anything-blender")]
@@ -178,11 +183,12 @@ fn main() -> Result<()> {
     let state_path = resolve_state_file(SOFTWARE);
     let mut state = load_or_seed_state(&state_path, SOFTWARE, BINARY, PROJECT_FORMAT)
         .with_context(|| format!("failed to load state from {}", state_path.display()))?;
+    let backend = backend_from_env();
     let skin = Skin::new(SOFTWARE, VERSION).with_skill_path("skills/SKILL.md");
 
     match app.action {
         Some(action) => {
-            let response = execute(action, &mut state);
+            let response = execute(action, &mut state, backend.as_ref());
             save_state(&state_path, &state)
                 .with_context(|| format!("failed to save state to {}", state_path.display()))?;
             print_response(&skin, &response, app.json);
@@ -195,7 +201,7 @@ fn main() -> Result<()> {
             );
         }
         None if io::stdin().is_terminal() => {
-            run_repl(skin, state, state_path)?;
+            run_repl(skin, state, state_path, backend)?;
         }
         None => {
             let summary = package_summary();
@@ -214,7 +220,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_repl(skin: Skin, mut state: ProjectState, state_path: std::path::PathBuf) -> Result<()> {
+fn run_repl(
+    skin: Skin,
+    mut state: ProjectState,
+    state_path: std::path::PathBuf,
+    backend: Arc<dyn Backend>,
+) -> Result<()> {
     let mut repl = Repl::new(skin.clone())
         .with_project_name(
             state
@@ -233,7 +244,7 @@ fn run_repl(skin: Skin, mut state: ProjectState, state_path: std::path::PathBuf)
         match App::try_parse_from(args) {
             Ok(parsed) => match parsed.action {
                 Some(action) => {
-                    let response = execute(action, &mut state);
+                    let response = execute(action, &mut state, backend.as_ref());
                     let rendered = serde_json::to_string_pretty(&response)
                         .unwrap_or_else(|err| format!("{{\"error\":\"{err}\"}}"));
                     if let Err(err) = save_state(&state_path, &state) {
@@ -276,8 +287,8 @@ fn print_response(skin: &Skin, response: &CommandResponse, as_json: bool) {
     }
 }
 
-fn execute(action: Action, state: &mut ProjectState) -> CommandResponse {
-    match action {
+fn execute(action: Action, state: &mut ProjectState, backend: &dyn Backend) -> CommandResponse {
+    let response = match action {
         Action::Scene { command } => record(scene_response(command), state),
         Action::Object { command } => record(object_response(command), state),
         Action::Material { command } => record(material_response(command), state),
@@ -285,9 +296,32 @@ fn execute(action: Action, state: &mut ProjectState) -> CommandResponse {
         Action::Camera { command } => record(camera_response(command), state),
         Action::Light { command } => record(light_response(command), state),
         Action::Animation { command } => record(animation_response(command), state),
-        Action::Render { command } => record(render_response(command), state),
+        Action::Render { command } => record(render_response(command, backend), state),
         Action::Session { command } => session_response(command, state),
-    }
+    };
+    stamp_backend(response, backend)
+}
+
+fn stamp_backend(mut response: CommandResponse, backend: &dyn Backend) -> CommandResponse {
+    response
+        .details
+        .insert("backend".to_string(), json!(backend.name()));
+    response
+}
+
+fn outcome_to_json(outcome: &BackendOutcome) -> Value {
+    let status = match outcome.status {
+        BackendStatus::DryRun => "dry-run",
+        BackendStatus::Success => "success",
+        BackendStatus::Failed => "failed",
+    };
+    json!({
+        "program": outcome.invocation.program,
+        "args": outcome.invocation.args,
+        "label": outcome.invocation.label,
+        "status": status,
+        "exit_code": outcome.exit_code,
+    })
 }
 
 fn record(response: CommandResponse, state: &mut ProjectState) -> CommandResponse {
@@ -589,12 +623,32 @@ fn animation_response(command: AnimationCommand) -> CommandResponse {
     }
 }
 
-fn render_response(command: RenderCommand) -> CommandResponse {
+fn render_response(command: RenderCommand, backend: &dyn Backend) -> CommandResponse {
     let command_name = render_command_name(&command);
     let description = render_command_description(&command);
 
     match command {
         RenderCommand::Frame { frame, format } => {
+            let invocation = BackendInvocation::new(
+                BACKEND_CMD,
+                vec![
+                    "--background".to_string(),
+                    "--render-frame".to_string(),
+                    frame.to_string(),
+                    "--render-format".to_string(),
+                    format.clone(),
+                ],
+                "render-frame",
+            );
+            let outcome = backend
+                .execute(invocation)
+                .unwrap_or_else(|err| BackendOutcome {
+                    invocation: BackendInvocation::new(BACKEND_CMD, Vec::new(), "render-frame"),
+                    status: BackendStatus::Failed,
+                    stdout: String::new(),
+                    stderr: err.to_string(),
+                    exit_code: None,
+                });
             let mut details = BTreeMap::new();
             details.insert(
                 "render".to_string(),
@@ -605,6 +659,7 @@ fn render_response(command: RenderCommand) -> CommandResponse {
                     "status": "queued"
                 }),
             );
+            details.insert("invocation".to_string(), outcome_to_json(&outcome));
             command_response_with_details("render", command_name, description, details)
         }
         RenderCommand::Info => {
