@@ -1,8 +1,18 @@
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cli_anything_core::{CommandResponse, PackageSummary, ResponseDetails};
-use cli_anything_repl::Skin;
-use serde_json::json;
+use cli_anything_project::{
+    ActionRecord, ProjectState, load_or_seed_state, resolve_state_file, save_state,
+};
+use cli_anything_repl::{DispatchOutcome, Repl, Skin};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::io::{self, IsTerminal};
+
+const SOFTWARE: &str = "gimp";
+const BINARY: &str = "cli-anything-gimp";
+const VERSION: &str = "1.0.0";
+const PROJECT_FORMAT: &str = "xcf";
 
 #[derive(Debug, Parser)]
 #[command(name = "cli-anything-gimp")]
@@ -109,6 +119,9 @@ enum ExportCommand {
 enum SessionCommand {
     Status,
     Undo,
+    Redo,
+    History,
+    Save,
 }
 
 #[derive(Debug, Subcommand)]
@@ -135,76 +148,157 @@ enum DrawCommand {
     },
 }
 
-fn main() {
+fn main() -> Result<()> {
     let app = App::parse();
-    let skin = Skin::new("gimp", "1.0.0").with_skill_path("skills/SKILL.md");
+    let state_path = resolve_state_file(SOFTWARE);
+    let mut state = load_or_seed_state(&state_path, SOFTWARE, BINARY, PROJECT_FORMAT)
+        .with_context(|| format!("failed to load state from {}", state_path.display()))?;
+    let skin = Skin::new(SOFTWARE, VERSION).with_skill_path("skills/SKILL.md");
 
     match app.action {
         Some(action) => {
-            let response = match action {
-                Action::Project { command } => project_response(command),
-                Action::Layer { command } => layer_response(command),
-                Action::Canvas { command } => canvas_response(command),
-                Action::Filter { command } => filter_response(command),
-                Action::Media { command } => media_response(command),
-                Action::Export { command } => export_response(command),
-                Action::Session { command } => session_response(command),
-                Action::Draw { command } => draw_response(command),
-            };
-            if app.json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&response)
-                        .expect("command response should serialize")
-                );
-            } else {
-                println!(
-                    "{}",
-                    skin.info(&format!("{} -> {}", response.group, response.command))
-                );
-                println!("{}", skin.status("detail", &response.description));
-                if !response.details.is_empty() {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&response.details)
-                            .expect("response details should serialize")
-                    );
-                }
-            }
+            let response = execute(action, &mut state);
+            save_state(&state_path, &state)
+                .with_context(|| format!("failed to save state to {}", state_path.display()))?;
+            print_response(&skin, &response, app.json);
+        }
+        None if app.json => {
+            let summary = package_summary();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&summary).expect("package summary should serialize")
+            );
+        }
+        None if io::stdin().is_terminal() => {
+            run_repl(skin, state, state_path)?;
         }
         None => {
             let summary = package_summary();
-            if app.json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&summary)
-                        .expect("package summary should serialize")
-                );
-            } else {
-                for line in skin.banner_lines() {
-                    println!("{line}");
-                }
-                println!("{}", skin.status("binary", "cli-anything-gimp"));
-                println!("{}", skin.status("format", "xcf"));
-                println!(
-                    "{}",
-                    skin.status(
-                        "groups",
-                        "project, layer, canvas, filter, media, export, session, draw"
-                    )
-                );
+            for line in skin.banner_lines() {
+                println!("{line}");
             }
+            println!("{}", skin.status("binary", BINARY));
+            println!("{}", skin.status("format", PROJECT_FORMAT));
+            println!(
+                "{}",
+                skin.status("groups", &summary.command_groups.join(", "))
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn run_repl(skin: Skin, mut state: ProjectState, state_path: std::path::PathBuf) -> Result<()> {
+    let mut repl = Repl::new(skin.clone())
+        .with_project_name(
+            state
+                .active_project
+                .clone()
+                .unwrap_or_else(|| "(unsaved)".to_string()),
+        )
+        .with_modified(state.dirty);
+
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    repl.run(stdin.lock(), stdout.lock(), |tokens| {
+        let mut args: Vec<String> = Vec::with_capacity(tokens.len() + 1);
+        args.push(BINARY.to_string());
+        args.extend(tokens.iter().cloned());
+        match App::try_parse_from(args) {
+            Ok(parsed) => match parsed.action {
+                Some(action) => {
+                    let response = execute(action, &mut state);
+                    let rendered = serde_json::to_string_pretty(&response)
+                        .unwrap_or_else(|err| format!("{{\"error\":\"{err}\"}}"));
+                    if let Err(err) = save_state(&state_path, &state) {
+                        return DispatchOutcome::Failed(format!(
+                            "command ran but state save failed: {err}"
+                        ));
+                    }
+                    DispatchOutcome::Rendered(rendered)
+                }
+                None => DispatchOutcome::Rendered(
+                    "enter a subcommand (project/layer/canvas/...); type 'help' for builtins"
+                        .to_string(),
+                ),
+            },
+            Err(err) => DispatchOutcome::Failed(err.to_string().trim().to_string()),
+        }
+    })?;
+    Ok(())
+}
+
+fn print_response(skin: &Skin, response: &CommandResponse, as_json: bool) {
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(response).expect("command response should serialize")
+        );
+    } else {
+        println!(
+            "{}",
+            skin.info(&format!("{} -> {}", response.group, response.command))
+        );
+        println!("{}", skin.status("detail", &response.description));
+        if !response.details.is_empty() {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.details)
+                    .expect("response details should serialize")
+            );
         }
     }
 }
 
+fn execute(action: Action, state: &mut ProjectState) -> CommandResponse {
+    match action {
+        Action::Project { command } => record(project_response(command), state),
+        Action::Layer { command } => record(layer_response(command), state),
+        Action::Canvas { command } => record(canvas_response(command), state),
+        Action::Filter { command } => record(filter_response(command), state),
+        Action::Media { command } => record(media_response(command), state),
+        Action::Export { command } => record(export_response(command), state),
+        Action::Draw { command } => record(draw_response(command), state),
+        Action::Session { command } => session_response(command, state),
+    }
+}
+
+fn record(response: CommandResponse, state: &mut ProjectState) -> CommandResponse {
+    if let Some(name) = active_project_from_response(&response) {
+        state.active_project = Some(name);
+    }
+    state.push_action(ActionRecord {
+        group: response.group.to_string(),
+        command: response.command.to_string(),
+        description: response.description.to_string(),
+        payload: if response.details.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_value(&response.details).unwrap_or(Value::Null))
+        },
+    });
+    response
+}
+
+fn active_project_from_response(response: &CommandResponse) -> Option<String> {
+    if response.group == "project"
+        && response.command == "new"
+        && let Some(Value::Object(project)) = response.details.get("project")
+        && let Some(Value::String(name)) = project.get("name")
+    {
+        return Some(name.clone());
+    }
+    None
+}
+
 fn package_summary() -> PackageSummary {
     PackageSummary {
-        name: "gimp".to_string(),
-        binary: "cli-anything-gimp".to_string(),
-        version: "1.0.0".to_string(),
+        name: SOFTWARE.to_string(),
+        binary: BINARY.to_string(),
+        version: VERSION.to_string(),
         description: "Raster image processing via gimp -i -b (batch mode)".to_string(),
-        project_format: "xcf".to_string(),
+        project_format: PROJECT_FORMAT.to_string(),
         skill_path: "packages/gimp/skills/SKILL.md".to_string(),
         command_groups: [
             "project", "layer", "canvas", "filter", "media", "export", "session", "draw",
@@ -231,8 +325,7 @@ fn command_response_with_details(
     description: &'static str,
     details: ResponseDetails,
 ) -> CommandResponse {
-    CommandResponse::new("gimp", "cli-anything-gimp", group, command, description)
-        .with_details(details)
+    CommandResponse::new(SOFTWARE, BINARY, group, command, description).with_details(details)
 }
 
 fn project_response(command: ProjectCommand) -> CommandResponse {
@@ -470,7 +563,7 @@ fn media_response(command: MediaCommand) -> CommandResponse {
     }
 }
 
-fn session_response(command: SessionCommand) -> CommandResponse {
+fn session_response(command: SessionCommand, state: &mut ProjectState) -> CommandResponse {
     let command_name = session_command_name(&command);
     let description = session_command_description(&command);
 
@@ -480,9 +573,10 @@ fn session_response(command: SessionCommand) -> CommandResponse {
             details.insert(
                 "session".to_string(),
                 json!({
-                    "dirty": false,
-                    "active_tool": "paintbrush",
-                    "history_depth": 12,
+                    "dirty": state.dirty,
+                    "active_project": state.active_project,
+                    "history_depth": state.history.len(),
+                    "redo_depth": state.redo_stack.len(),
                     "autosave": "enabled"
                 }),
             );
@@ -490,17 +584,70 @@ fn session_response(command: SessionCommand) -> CommandResponse {
         }
         SessionCommand::Undo => {
             let mut details = BTreeMap::new();
-            details.insert(
-                "undone_action".to_string(),
-                json!({
-                    "name": "bucket-fill",
-                    "target": "Highlights",
-                    "history_index": 11
-                }),
-            );
+            match state.undo() {
+                Some(undone) => {
+                    details.insert("status".to_string(), json!("undone"));
+                    details.insert("undone_action".to_string(), action_to_json(&undone));
+                    details.insert("history_depth".to_string(), json!(state.history.len()));
+                }
+                None => {
+                    details.insert("status".to_string(), json!("nothing-to-undo"));
+                    details.insert("history_depth".to_string(), json!(0));
+                }
+            }
+            command_response_with_details("session", command_name, description, details)
+        }
+        SessionCommand::Redo => {
+            let mut details = BTreeMap::new();
+            match state.redo() {
+                Some(redone) => {
+                    details.insert("status".to_string(), json!("redone"));
+                    details.insert("redone_action".to_string(), action_to_json(&redone));
+                    details.insert("history_depth".to_string(), json!(state.history.len()));
+                }
+                None => {
+                    details.insert("status".to_string(), json!("nothing-to-redo"));
+                    details.insert("history_depth".to_string(), json!(state.history.len()));
+                }
+            }
+            command_response_with_details("session", command_name, description, details)
+        }
+        SessionCommand::History => {
+            let mut details = BTreeMap::new();
+            let history: Vec<Value> = state
+                .history
+                .iter()
+                .enumerate()
+                .map(|(index, record)| {
+                    json!({
+                        "index": index,
+                        "group": record.group,
+                        "command": record.command,
+                        "description": record.description,
+                    })
+                })
+                .collect();
+            details.insert("history_depth".to_string(), json!(history.len()));
+            details.insert("history".to_string(), Value::Array(history));
+            command_response_with_details("session", command_name, description, details)
+        }
+        SessionCommand::Save => {
+            state.mark_clean();
+            let mut details = BTreeMap::new();
+            details.insert("status".to_string(), json!("saved"));
+            details.insert("history_depth".to_string(), json!(state.history.len()));
             command_response_with_details("session", command_name, description, details)
         }
     }
+}
+
+fn action_to_json(action: &ActionRecord) -> Value {
+    json!({
+        "group": action.group,
+        "command": action.command,
+        "description": action.description,
+        "payload": action.payload,
+    })
 }
 
 fn draw_response(command: DrawCommand) -> CommandResponse {
@@ -590,6 +737,9 @@ fn session_command_name(command: &SessionCommand) -> &'static str {
     match command {
         SessionCommand::Status => "status",
         SessionCommand::Undo => "undo",
+        SessionCommand::Redo => "redo",
+        SessionCommand::History => "history",
+        SessionCommand::Save => "save",
     }
 }
 
@@ -646,6 +796,9 @@ fn session_command_description(command: &SessionCommand) -> &'static str {
     match command {
         SessionCommand::Status => "Show session status",
         SessionCommand::Undo => "Undo the last action",
+        SessionCommand::Redo => "Redo the last undone action",
+        SessionCommand::History => "List recorded actions",
+        SessionCommand::Save => "Mark the session clean",
     }
 }
 

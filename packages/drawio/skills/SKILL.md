@@ -18,7 +18,6 @@ cargo install --path packages/drawio
 **Prerequisites:**
 
 - drawio must be installed on your system
-
 - Install drawio: `draw.io desktop app`
 
 ## Usage
@@ -43,12 +42,8 @@ Diagram project commands
 
 | Command | Description |
 |---------|-------------|
-
 | `new` | Create a new diagram |
-
 | `info` | Show project metadata |
-
-
 
 ### shape
 
@@ -56,12 +51,8 @@ Shape creation commands
 
 | Command | Description |
 |---------|-------------|
-
 | `add` | Add a shape |
-
 | `types` | List shape types |
-
-
 
 ### connect
 
@@ -69,12 +60,8 @@ Connector authoring commands
 
 | Command | Description |
 |---------|-------------|
-
 | `add` | Create a connector |
-
 | `styles` | List connector styles |
-
-
 
 ### page
 
@@ -82,12 +69,8 @@ Page management commands
 
 | Command | Description |
 |---------|-------------|
-
 | `add` | Add a page |
-
 | `list` | List pages |
-
-
 
 ### export
 
@@ -95,12 +78,8 @@ Export commands
 
 | Command | Description |
 |---------|-------------|
-
 | `diagram` | Export a diagram |
-
 | `formats` | List formats |
-
-
 
 ### session
 
@@ -108,12 +87,8 @@ Session management commands
 
 | Command | Description |
 |---------|-------------|
-
 | `status` | Show current session |
-
 | `save` | Persist session state |
-
-
 
 ## Examples
 
@@ -136,23 +111,18 @@ cli-anything-drawio shape add rectangle --text API
 ## State Management
 
 - Undo/redo friendly command execution
-
 - Project persistence through state files
-
 - Session tracking for modified buffers
 
 ## Output Formats
 
 - Human-readable output for operators
-
 - Machine-readable JSON output for agents
 
 ## For AI Agents
 
 1. Prefer `cli-anything-drawio --json` when structured output is available
-
 2. Check exit codes before reading generated files
-
 3. Use absolute paths for package and fixture operations
 
 ## Version

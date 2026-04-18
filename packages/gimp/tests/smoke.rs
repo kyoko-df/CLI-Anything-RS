@@ -1,12 +1,39 @@
+use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
-fn run_binary(args: &[&str]) -> std::process::Output {
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn unique_state_file(label: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be valid")
+        .as_nanos();
+    let bump = COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("cli-anything-rs-gimp-{label}-{nanos}-{bump}.json"))
+}
+
+fn run_binary(state_file: &PathBuf, args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_cli-anything-gimp"))
+        .env("CLI_ANYTHING_STATE_FILE", state_file)
         .args(args)
         .output()
         .expect("generated binary should run")
+}
+
+fn run_json(state_file: &PathBuf, args: &[&str]) -> Value {
+    let output = run_binary(state_file, args);
+    assert!(
+        output.status.success(),
+        "binary exited with {:?} for args {:?}\nstderr: {}",
+        output.status,
+        args,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("command output should be valid json")
 }
 
 #[test]
@@ -16,12 +43,8 @@ fn binary_name_is_stable() {
 
 #[test]
 fn json_summary_reports_package_metadata() {
-    let output = run_binary(&["--json"]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("summary output should be valid json");
+    let state_file = unique_state_file("summary");
+    let payload = run_json(&state_file, &["--json"]);
 
     assert_eq!(payload["name"], "gimp");
     assert_eq!(payload["binary"], "cli-anything-gimp");
@@ -36,12 +59,8 @@ fn json_summary_reports_package_metadata() {
 
 #[test]
 fn json_subcommand_response_includes_description() {
-    let output = run_binary(&["--json", "project", "new"]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("subcommand");
+    let payload = run_json(&state_file, &["--json", "project", "new"]);
 
     assert_eq!(payload["software"], "gimp");
     assert_eq!(payload["group"], "project");
@@ -51,14 +70,13 @@ fn json_subcommand_response_includes_description() {
 
 #[test]
 fn project_new_json_includes_requested_dimensions() {
-    let output = run_binary(&[
-        "--json", "project", "new", "--name", "poster", "--width", "2048", "--height", "1024",
-    ]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("project-new");
+    let payload = run_json(
+        &state_file,
+        &[
+            "--json", "project", "new", "--name", "poster", "--width", "2048", "--height", "1024",
+        ],
+    );
 
     assert_eq!(payload["group"], "project");
     assert_eq!(payload["command"], "new");
@@ -70,12 +88,8 @@ fn project_new_json_includes_requested_dimensions() {
 
 #[test]
 fn project_info_json_reports_default_template() {
-    let output = run_binary(&["--json", "project", "info"]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("project-info");
+    let payload = run_json(&state_file, &["--json", "project", "info"]);
 
     assert_eq!(payload["group"], "project");
     assert_eq!(payload["command"], "info");
@@ -87,12 +101,8 @@ fn project_info_json_reports_default_template() {
 
 #[test]
 fn filter_list_json_reports_known_filters() {
-    let output = run_binary(&["--json", "filter", "list"]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("filter-list");
+    let payload = run_json(&state_file, &["--json", "filter", "list"]);
 
     assert_eq!(payload["group"], "filter");
     assert_eq!(payload["command"], "list");
@@ -103,12 +113,8 @@ fn filter_list_json_reports_known_filters() {
 
 #[test]
 fn layer_list_json_reports_default_layers() {
-    let output = run_binary(&["--json", "layer", "list"]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("layer-list");
+    let payload = run_json(&state_file, &["--json", "layer", "list"]);
 
     assert_eq!(payload["group"], "layer");
     assert_eq!(payload["command"], "list");
@@ -119,12 +125,8 @@ fn layer_list_json_reports_default_layers() {
 
 #[test]
 fn canvas_info_json_reports_current_canvas_state() {
-    let output = run_binary(&["--json", "canvas", "info"]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("canvas-info");
+    let payload = run_json(&state_file, &["--json", "canvas", "info"]);
 
     assert_eq!(payload["group"], "canvas");
     assert_eq!(payload["command"], "info");
@@ -135,14 +137,13 @@ fn canvas_info_json_reports_current_canvas_state() {
 
 #[test]
 fn canvas_resize_json_reports_requested_dimensions() {
-    let output = run_binary(&[
-        "--json", "canvas", "resize", "--width", "4096", "--height", "2160",
-    ]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("canvas-resize");
+    let payload = run_json(
+        &state_file,
+        &[
+            "--json", "canvas", "resize", "--width", "4096", "--height", "2160",
+        ],
+    );
 
     assert_eq!(payload["group"], "canvas");
     assert_eq!(payload["command"], "resize");
@@ -153,12 +154,8 @@ fn canvas_resize_json_reports_requested_dimensions() {
 
 #[test]
 fn export_presets_json_reports_available_formats() {
-    let output = run_binary(&["--json", "export", "presets"]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("export-presets");
+    let payload = run_json(&state_file, &["--json", "export", "presets"]);
 
     assert_eq!(payload["group"], "export");
     assert_eq!(payload["command"], "presets");
@@ -169,20 +166,19 @@ fn export_presets_json_reports_available_formats() {
 
 #[test]
 fn media_import_json_reports_asset_metadata() {
-    let output = run_binary(&[
-        "--json",
-        "media",
-        "import",
-        "--path",
-        "fixtures/reference.png",
-        "--slot",
-        "reference",
-    ]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("media-import");
+    let payload = run_json(
+        &state_file,
+        &[
+            "--json",
+            "media",
+            "import",
+            "--path",
+            "fixtures/reference.png",
+            "--slot",
+            "reference",
+        ],
+    );
 
     assert_eq!(payload["group"], "media");
     assert_eq!(payload["command"], "import");
@@ -193,12 +189,8 @@ fn media_import_json_reports_asset_metadata() {
 
 #[test]
 fn media_list_json_reports_imported_assets() {
-    let output = run_binary(&["--json", "media", "list"]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("media-list");
+    let payload = run_json(&state_file, &["--json", "media", "list"]);
 
     assert_eq!(payload["group"], "media");
     assert_eq!(payload["command"], "list");
@@ -208,46 +200,108 @@ fn media_list_json_reports_imported_assets() {
 }
 
 #[test]
-fn session_status_json_reports_current_checkpoint() {
-    let output = run_binary(&["--json", "session", "status"]);
+fn session_status_reports_state_after_mutation() {
+    let state_file = unique_state_file("session-status");
 
-    assert!(output.status.success());
+    let fresh = run_json(&state_file, &["--json", "session", "status"]);
+    assert_eq!(fresh["group"], "session");
+    assert_eq!(fresh["command"], "status");
+    assert_eq!(fresh["session"]["dirty"], false);
+    assert_eq!(fresh["session"]["history_depth"], 0);
+    assert_eq!(fresh["session"]["active_project"], Value::Null);
 
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    run_json(&state_file, &["--json", "project", "new", "--name", "demo"]);
 
-    assert_eq!(payload["group"], "session");
-    assert_eq!(payload["command"], "status");
-    assert_eq!(payload["session"]["dirty"], false);
-    assert_eq!(payload["session"]["active_tool"], "paintbrush");
-    assert_eq!(payload["session"]["history_depth"], 12);
+    let after = run_json(&state_file, &["--json", "session", "status"]);
+    assert_eq!(after["session"]["dirty"], true);
+    assert_eq!(after["session"]["history_depth"], 1);
+    assert_eq!(after["session"]["active_project"], "demo");
 }
 
 #[test]
-fn session_undo_json_reports_reverted_operation() {
-    let output = run_binary(&["--json", "session", "undo"]);
+fn session_undo_returns_last_action_then_empties_history() {
+    let state_file = unique_state_file("session-undo");
 
-    assert!(output.status.success());
+    run_json(
+        &state_file,
+        &["--json", "project", "new", "--name", "poster"],
+    );
 
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let undone = run_json(&state_file, &["--json", "session", "undo"]);
+    assert_eq!(undone["command"], "undo");
+    assert_eq!(undone["status"], "undone");
+    assert_eq!(undone["undone_action"]["command"], "new");
+    assert_eq!(undone["history_depth"], 0);
 
-    assert_eq!(payload["group"], "session");
-    assert_eq!(payload["command"], "undo");
-    assert_eq!(payload["undone_action"]["name"], "bucket-fill");
-    assert_eq!(payload["undone_action"]["target"], "Highlights");
+    let nothing = run_json(&state_file, &["--json", "session", "undo"]);
+    assert_eq!(nothing["status"], "nothing-to-undo");
+    assert_eq!(nothing["history_depth"], 0);
+}
+
+#[test]
+fn session_redo_restores_undone_action() {
+    let state_file = unique_state_file("session-redo");
+
+    run_json(
+        &state_file,
+        &["--json", "project", "new", "--name", "poster"],
+    );
+    run_json(&state_file, &["--json", "session", "undo"]);
+
+    let redone = run_json(&state_file, &["--json", "session", "redo"]);
+    assert_eq!(redone["status"], "redone");
+    assert_eq!(redone["redone_action"]["command"], "new");
+    assert_eq!(redone["history_depth"], 1);
+}
+
+#[test]
+fn session_history_lists_recorded_actions() {
+    let state_file = unique_state_file("session-history");
+
+    run_json(
+        &state_file,
+        &["--json", "project", "new", "--name", "poster"],
+    );
+    run_json(
+        &state_file,
+        &[
+            "--json", "canvas", "resize", "--width", "2048", "--height", "1024",
+        ],
+    );
+
+    let history = run_json(&state_file, &["--json", "session", "history"]);
+    assert_eq!(history["history_depth"], 2);
+    assert_eq!(history["history"][0]["group"], "project");
+    assert_eq!(history["history"][0]["command"], "new");
+    assert_eq!(history["history"][1]["group"], "canvas");
+    assert_eq!(history["history"][1]["command"], "resize");
+}
+
+#[test]
+fn session_save_marks_clean() {
+    let state_file = unique_state_file("session-save");
+
+    run_json(&state_file, &["--json", "project", "new", "--name", "demo"]);
+
+    let saved = run_json(&state_file, &["--json", "session", "save"]);
+    assert_eq!(saved["status"], "saved");
+    assert_eq!(saved["history_depth"], 1);
+
+    let status = run_json(&state_file, &["--json", "session", "status"]);
+    // Session commands do not mutate history; save only flips the dirty flag.
+    assert_eq!(status["session"]["history_depth"], 1);
+    assert_eq!(status["session"]["dirty"], false);
 }
 
 #[test]
 fn draw_line_json_reports_stroke_geometry() {
-    let output = run_binary(&[
-        "--json", "draw", "line", "--x1", "10", "--y1", "20", "--x2", "320", "--y2", "240",
-    ]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("draw-line");
+    let payload = run_json(
+        &state_file,
+        &[
+            "--json", "draw", "line", "--x1", "10", "--y1", "20", "--x2", "320", "--y2", "240",
+        ],
+    );
 
     assert_eq!(payload["group"], "draw");
     assert_eq!(payload["command"], "line");
@@ -258,24 +312,23 @@ fn draw_line_json_reports_stroke_geometry() {
 
 #[test]
 fn draw_rectangle_json_reports_bounds() {
-    let output = run_binary(&[
-        "--json",
-        "draw",
-        "rectangle",
-        "--x",
-        "64",
-        "--y",
-        "96",
-        "--width",
-        "512",
-        "--height",
-        "256",
-    ]);
-
-    assert!(output.status.success());
-
-    let payload: Value =
-        serde_json::from_slice(&output.stdout).expect("command output should be valid json");
+    let state_file = unique_state_file("draw-rect");
+    let payload = run_json(
+        &state_file,
+        &[
+            "--json",
+            "draw",
+            "rectangle",
+            "--x",
+            "64",
+            "--y",
+            "96",
+            "--width",
+            "512",
+            "--height",
+            "256",
+        ],
+    );
 
     assert_eq!(payload["group"], "draw");
     assert_eq!(payload["command"], "rectangle");

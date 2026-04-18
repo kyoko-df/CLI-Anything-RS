@@ -10,6 +10,8 @@
 //! so that package authors and higher-level commands (refine / test /
 //! validate) can start consuming a stable shape.
 
+pub mod backend;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -48,14 +50,25 @@ pub struct ActionRecord {
     pub payload: Option<serde_json::Value>,
 }
 
+/// Environment variable that lets callers override the state file path.
+/// Package binaries honor this so tests can run against per-case temp files
+/// without polluting the current working directory.
+pub const STATE_FILE_ENV: &str = "CLI_ANYTHING_STATE_FILE";
+
 impl ProjectState {
     /// Build a fresh state object populated from `manifest`.
     pub fn from_manifest(manifest: &CliAnythingManifest) -> Self {
+        Self::seed(&manifest.name, &manifest.binary, &manifest.project.format)
+    }
+
+    /// Build a fresh state object without a manifest — useful when the
+    /// generated package has its metadata compiled in as constants.
+    pub fn seed(software: &str, binary: &str, project_format: &str) -> Self {
         Self {
             version: STATE_FILE_VERSION,
-            software: manifest.name.clone(),
-            binary: manifest.binary.clone(),
-            project_format: manifest.project.format.clone(),
+            software: software.to_string(),
+            binary: binary.to_string(),
+            project_format: project_format.to_string(),
             active_project: None,
             dirty: false,
             history: Vec::new(),
@@ -114,6 +127,32 @@ pub fn load_or_init_state(path: &Path, manifest: &CliAnythingManifest) -> Result
     } else {
         Ok(ProjectState::from_manifest(manifest))
     }
+}
+
+/// Load the state file or seed an empty one without a manifest.
+pub fn load_or_seed_state(
+    path: &Path,
+    software: &str,
+    binary: &str,
+    project_format: &str,
+) -> Result<ProjectState> {
+    if path.exists() {
+        load_state(path)
+    } else {
+        Ok(ProjectState::seed(software, binary, project_format))
+    }
+}
+
+/// Resolve the state file path for a generated package. Honors the
+/// `CLI_ANYTHING_STATE_FILE` environment variable; otherwise falls back to
+/// `./.{software}-cli.json` in the current working directory.
+pub fn resolve_state_file(software: &str) -> PathBuf {
+    if let Ok(explicit) = std::env::var(STATE_FILE_ENV)
+        && !explicit.is_empty()
+    {
+        return PathBuf::from(explicit);
+    }
+    PathBuf::from(format!(".{software}-cli.json"))
 }
 
 pub fn save_state(path: &Path, state: &ProjectState) -> Result<()> {
@@ -249,6 +288,44 @@ template = "templates/skill/SKILL.md.template"
         let loaded = load_state(&path).expect("state should load");
 
         assert_eq!(loaded, state);
+
+        fs::remove_dir_all(&workspace).expect("workspace should be removed");
+    }
+
+    #[test]
+    fn resolve_state_file_honors_env_override() {
+        let key = STATE_FILE_ENV;
+        let previous = std::env::var(key).ok();
+        unsafe {
+            std::env::set_var(key, "/tmp/example.json");
+        }
+        assert_eq!(
+            resolve_state_file("gimp"),
+            PathBuf::from("/tmp/example.json")
+        );
+        unsafe {
+            std::env::remove_var(key);
+        }
+        assert_eq!(resolve_state_file("gimp"), PathBuf::from(".gimp-cli.json"));
+        if let Some(prev) = previous {
+            unsafe {
+                std::env::set_var(key, prev);
+            }
+        }
+    }
+
+    #[test]
+    fn load_or_seed_state_creates_fresh_without_manifest() {
+        let workspace = unique_test_dir("seed");
+        fs::create_dir_all(&workspace).expect("workspace should exist");
+        let path = workspace.join(".gimp-cli.json");
+
+        let state = load_or_seed_state(&path, "gimp", "cli-anything-gimp", "xcf")
+            .expect("seed should not fail");
+
+        assert_eq!(state.software, "gimp");
+        assert_eq!(state.project_format, "xcf");
+        assert!(state.history.is_empty());
 
         fs::remove_dir_all(&workspace).expect("workspace should be removed");
     }
