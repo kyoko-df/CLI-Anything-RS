@@ -9,6 +9,7 @@ use cli_anything_core::{
     parse_source_target,
 };
 use cli_anything_generator::{GeneratedPackage, generate_package};
+use cli_anything_integrations::{IntegrationOutput, render_all_integrations};
 use cli_anything_repl::Skin;
 use serde::Serialize;
 
@@ -38,6 +39,8 @@ enum Action {
         dry_run: bool,
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        emit_integrations: bool,
     },
     Refine {
         source: String,
@@ -93,7 +96,14 @@ struct BuildResult {
     dry_run: bool,
     package_root: PathBuf,
     generated_files: Vec<PathBuf>,
+    integrations: Vec<IntegrationSummary>,
     manifest: CliAnythingManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct IntegrationSummary {
+    target: String,
+    path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -146,8 +156,9 @@ fn run(app: App) -> Result<()> {
             source,
             dry_run,
             json,
+            emit_integrations,
         } => {
-            let result = execute_build(&workspace_root, &source, dry_run)?;
+            let result = execute_build(&workspace_root, &source, dry_run, emit_integrations)?;
             render_value(result, json, render_build_text)?
         }
         Action::Refine {
@@ -266,13 +277,35 @@ fn execute_init(path: &Path) -> Result<InitResult> {
     })
 }
 
-fn execute_build(workspace_root: &Path, source: &str, dry_run: bool) -> Result<BuildResult> {
+fn execute_build(
+    workspace_root: &Path,
+    source: &str,
+    dry_run: bool,
+    emit_integrations: bool,
+) -> Result<BuildResult> {
     let target = parse_source_target(source)?;
     let GeneratedPackage {
         manifest,
         layout,
-        files,
+        mut files,
     } = generate_package(workspace_root, &target.software_name, dry_run)?;
+
+    let integrations = if emit_integrations {
+        let outputs = render_all_integrations(&manifest);
+        write_integration_outputs(&layout.root, &outputs, dry_run)?;
+        for output in &outputs {
+            files.push(layout.root.join("integrations").join(&output.filename));
+        }
+        outputs
+            .iter()
+            .map(|output| IntegrationSummary {
+                target: output.target.id().to_string(),
+                path: layout.root.join("integrations").join(&output.filename),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     Ok(BuildResult {
         software_name: target.software_name,
@@ -280,8 +313,28 @@ fn execute_build(workspace_root: &Path, source: &str, dry_run: bool) -> Result<B
         dry_run,
         package_root: layout.root,
         generated_files: files,
+        integrations,
         manifest,
     })
+}
+
+fn write_integration_outputs(
+    package_root: &Path,
+    outputs: &[IntegrationOutput],
+    dry_run: bool,
+) -> Result<()> {
+    if dry_run {
+        return Ok(());
+    }
+    let integrations_dir = package_root.join("integrations");
+    fs::create_dir_all(&integrations_dir)
+        .with_context(|| format!("failed to create {}", integrations_dir.display()))?;
+    for output in outputs {
+        let path = integrations_dir.join(&output.filename);
+        fs::write(&path, &output.content)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn create_refine_plan(
@@ -568,6 +621,16 @@ fn render_build_text(result: &BuildResult) -> String {
             .iter()
             .map(|path| format!("- {}", path.display())),
     );
+    if !result.integrations.is_empty() {
+        lines.push("integrations:".to_string());
+        for integration in &result.integrations {
+            lines.push(format!(
+                "- {}: {}",
+                integration.target,
+                integration.path.display()
+            ));
+        }
+    }
     lines.join("\n")
 }
 
@@ -670,8 +733,13 @@ mod tests {
         let workspace = unique_test_dir("build");
         fs::create_dir_all(&workspace).expect("workspace should exist");
 
-        let result = execute_build(&workspace, "https://github.com/blender/blender", false)
-            .expect("build should succeed");
+        let result = execute_build(
+            &workspace,
+            "https://github.com/blender/blender",
+            false,
+            false,
+        )
+        .expect("build should succeed");
 
         assert_eq!(result.software_name, "blender");
         assert_eq!(result.manifest.version, "1.0.0");
@@ -699,7 +767,8 @@ mod tests {
         let workspace = unique_test_dir("drawio");
         fs::create_dir_all(&workspace).expect("workspace should exist");
 
-        let result = execute_build(&workspace, "./drawio", false).expect("build should succeed");
+        let result =
+            execute_build(&workspace, "./drawio", false, false).expect("build should succeed");
 
         assert_eq!(result.manifest.version, "1.0.0");
         assert_eq!(result.manifest.backend.command, "draw.io");
@@ -719,7 +788,7 @@ mod tests {
     fn refine_plan_honors_focus_argument() {
         let workspace = unique_test_dir("refine");
         fs::create_dir_all(&workspace).expect("workspace should exist");
-        execute_build(&workspace, "./gimp", false).expect("build should succeed");
+        execute_build(&workspace, "./gimp", false, false).expect("build should succeed");
 
         let plan = create_refine_plan(&workspace, "./gimp", Some("filters".to_string()))
             .expect("refine plan should succeed");
@@ -738,7 +807,7 @@ mod tests {
     fn validate_reports_success_for_generated_package() {
         let workspace = unique_test_dir("validate");
         fs::create_dir_all(&workspace).expect("workspace should exist");
-        execute_build(&workspace, "./drawio", false).expect("build should succeed");
+        execute_build(&workspace, "./drawio", false, false).expect("build should succeed");
 
         let report = validate_package(&workspace, "./drawio").expect("validation should succeed");
 
@@ -751,12 +820,48 @@ mod tests {
     fn list_discovers_generated_packages() {
         let workspace = unique_test_dir("list");
         fs::create_dir_all(&workspace).expect("workspace should exist");
-        execute_build(&workspace, "./shotcut", false).expect("build should succeed");
+        execute_build(&workspace, "./shotcut", false, false).expect("build should succeed");
 
         let entries = list_packages(&workspace, Some(4)).expect("list should succeed");
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].software_name, "shotcut");
+
+        fs::remove_dir_all(&workspace).expect("workspace should be removed");
+    }
+
+    #[test]
+    fn build_emit_integrations_writes_files_on_disk() {
+        let workspace = unique_test_dir("emit-integrations");
+        fs::create_dir_all(&workspace).expect("workspace should exist");
+
+        let result = execute_build(&workspace, "./gimp", false, true)
+            .expect("build should succeed with integrations");
+
+        assert_eq!(result.integrations.len(), 4);
+        let integrations_dir = result.package_root.join("integrations");
+        assert!(integrations_dir.join("CLAUDE.md").exists());
+        assert!(integrations_dir.join("opencode.md").exists());
+        assert!(integrations_dir.join("codex.yaml").exists());
+        assert!(integrations_dir.join("hub.md").exists());
+
+        let claude = fs::read_to_string(integrations_dir.join("CLAUDE.md"))
+            .expect("claude file should be readable");
+        assert!(claude.contains("cli-anything-gimp"));
+
+        fs::remove_dir_all(&workspace).expect("workspace should be removed");
+    }
+
+    #[test]
+    fn build_without_emit_integrations_skips_integrations_directory() {
+        let workspace = unique_test_dir("no-emit-integrations");
+        fs::create_dir_all(&workspace).expect("workspace should exist");
+
+        let result = execute_build(&workspace, "./gimp", false, false)
+            .expect("build should succeed without integrations");
+
+        assert!(result.integrations.is_empty());
+        assert!(!result.package_root.join("integrations").exists());
 
         fs::remove_dir_all(&workspace).expect("workspace should be removed");
     }

@@ -50,101 +50,124 @@ pub fn render_skill_markdown(manifest: &CliAnythingManifest) -> String {
 }
 
 pub fn render_skill_markdown_from_metadata(metadata: &SkillMetadata) -> String {
-    let mut sections = vec![
-        format!(
-            "---\nname: {}\ndescription: {}\n---\n",
-            metadata.skill_name, metadata.skill_description
-        ),
-        format!("# {}\n", metadata.skill_name),
-        format!("{}\n", metadata.skill_intro),
-        "## Installation\n".to_string(),
-        format!(
-            "This CLI is installed as part of the `{}` package.\n",
-            metadata.binary
-        ),
-        format!(
-            "```bash\ncargo install --path packages/{}\n```\n",
-            metadata.software_name
-        ),
-        "**Prerequisites:**\n".to_string(),
-        format!(
-            "- {} must be installed on your system\n",
-            metadata.software_name
-        ),
-    ];
+    // Each entry in `sections` is a self-contained block with no trailing
+    // newline; blank lines between blocks come from `join("\n\n")`. Keep
+    // multi-line blocks (e.g. Markdown tables, fenced code) as one entry so
+    // the blank-line separator never splits them apart.
+    let mut sections: Vec<String> = Vec::new();
 
+    sections.push(format!(
+        "---\nname: {}\ndescription: {}\n---",
+        metadata.skill_name, metadata.skill_description
+    ));
+    sections.push(format!("# {}", metadata.skill_name));
+    sections.push(metadata.skill_intro.clone());
+
+    sections.push("## Installation".to_string());
+    sections.push(format!(
+        "This CLI is installed as part of the `{}` package.",
+        metadata.binary
+    ));
+    sections.push(format!(
+        "```bash\ncargo install --path packages/{}\n```",
+        metadata.software_name
+    ));
+
+    let mut prereq = String::from("**Prerequisites:**\n\n");
+    prereq.push_str(&format!(
+        "- {} must be installed on your system",
+        metadata.software_name
+    ));
     if !metadata.system_package.trim().is_empty() {
-        sections.push(format!(
-            "- Install {}: `{}`\n",
+        prereq.push('\n');
+        prereq.push_str(&format!(
+            "- Install {}: `{}`",
             metadata.software_name, metadata.system_package
         ));
     }
+    sections.push(prereq);
 
-    sections.push("## Usage\n".to_string());
-    sections.push("### Basic Commands\n".to_string());
+    sections.push("## Usage".to_string());
+    sections.push("### Basic Commands".to_string());
     sections.push(format!(
-        "```bash\n{} --help\n{}\n{} --json\n```\n",
-        metadata.binary, metadata.binary, metadata.binary
+        "```bash\n{bin} --help\n{bin}\n{bin} --json\n```",
+        bin = metadata.binary
     ));
 
     if metadata.repl_default {
-        sections.push("### REPL Mode\n".to_string());
+        sections.push("### REPL Mode".to_string());
         sections.push(format!(
-            "Invoke `{}` without a subcommand to enter an interactive session.\n",
+            "Invoke `{}` without a subcommand to enter an interactive session.",
             metadata.binary
         ));
     }
 
     if !metadata.command_groups.is_empty() {
-        sections.push("## Command Groups\n".to_string());
+        sections.push("## Command Groups".to_string());
         for group in &metadata.command_groups {
-            sections.push(format!("### {}\n", group.name));
-            sections.push(format!("{}\n", group.description));
-            sections.push("| Command | Description |\n|---------|-------------|\n".to_string());
+            sections.push(format!("### {}", group.name));
+            sections.push(group.description.clone());
+
+            let mut table = String::from("| Command | Description |\n|---------|-------------|");
             for command in &group.commands {
-                sections.push(format!(
-                    "| `{}` | {} |\n",
-                    command.name, command.description
-                ));
+                table.push('\n');
+                table.push_str(&format!("| `{}` | {} |", command.name, command.description));
             }
-            sections.push("\n".to_string());
+            sections.push(table);
         }
     }
 
     if !metadata.examples.is_empty() {
-        sections.push("## Examples\n".to_string());
+        sections.push("## Examples".to_string());
         for example in &metadata.examples {
-            sections.push(format!("### {}\n", example.title));
-            sections.push(format!("{}\n", example.description));
-            sections.push(format!("```bash\n{}\n```\n", example.code));
+            sections.push(format!("### {}", example.title));
+            sections.push(example.description.clone());
+            sections.push(format!("```bash\n{}\n```", example.code));
         }
     }
 
-    sections.push("## State Management\n".to_string());
-    sections.push("- Undo/redo friendly command execution\n".to_string());
-    sections.push("- Project persistence through state files\n".to_string());
-    sections.push("- Session tracking for modified buffers\n".to_string());
+    sections.push("## State Management".to_string());
+    sections.push(
+        [
+            "- Undo/redo friendly command execution",
+            "- Project persistence through state files",
+            "- Session tracking for modified buffers",
+        ]
+        .join("\n"),
+    );
 
-    sections.push("## Output Formats\n".to_string());
+    sections.push("## Output Formats".to_string());
     if metadata.supports_json {
-        sections.push("- Human-readable output for operators\n".to_string());
-        sections.push("- Machine-readable JSON output for agents\n".to_string());
+        sections.push(
+            [
+                "- Human-readable output for operators",
+                "- Machine-readable JSON output for agents",
+            ]
+            .join("\n"),
+        );
     } else {
-        sections.push("- Human-readable output\n".to_string());
+        sections.push("- Human-readable output".to_string());
     }
 
-    sections.push("## For AI Agents\n".to_string());
-    sections.push(format!(
-        "1. Prefer `{} --json` when structured output is available\n",
-        metadata.binary
-    ));
-    sections.push("2. Check exit codes before reading generated files\n".to_string());
-    sections.push("3. Use absolute paths for package and fixture operations\n".to_string());
+    sections.push("## For AI Agents".to_string());
+    sections.push(
+        [
+            format!(
+                "1. Prefer `{} --json` when structured output is available",
+                metadata.binary
+            ),
+            "2. Check exit codes before reading generated files".to_string(),
+            "3. Use absolute paths for package and fixture operations".to_string(),
+        ]
+        .join("\n"),
+    );
 
-    sections.push("## Version\n".to_string());
-    sections.push(format!("{}\n", metadata.version));
+    sections.push("## Version".to_string());
+    sections.push(metadata.version.clone());
 
-    sections.join("\n")
+    let mut rendered = sections.join("\n\n");
+    rendered.push('\n');
+    rendered
 }
 
 pub fn generate_skill_file(
@@ -215,6 +238,23 @@ code = "cli-anything-shotcut project new -o demo.mlt"
         assert!(markdown.contains("## Command Groups"));
         assert!(markdown.contains("## Examples"));
         assert!(markdown.contains("melt ffmpeg"));
+    }
+
+    #[test]
+    fn command_group_tables_are_not_broken_by_blank_lines() {
+        let manifest = parse_manifest(SAMPLE_MANIFEST).expect("manifest should parse");
+        let markdown = render_skill_markdown(&manifest);
+
+        let expected_rows = "| Command | Description |\n|---------|-------------|\n| `new` | Create a new project |";
+
+        assert!(
+            markdown.contains(expected_rows),
+            "table rows should be contiguous, got:\n{markdown}"
+        );
+        assert!(
+            !markdown.contains("|---------|-------------|\n\n|"),
+            "table body should not be separated from its header by a blank line, got:\n{markdown}"
+        );
     }
 
     #[test]
