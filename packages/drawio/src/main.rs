@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cli_anything_core::{CommandResponse, PackageSummary, ResponseDetails};
+use cli_anything_project::backend::{
+    Backend, BackendInvocation, BackendOutcome, BackendStatus, backend_from_env,
+};
 use cli_anything_project::{
     ActionRecord, ProjectState, load_or_seed_state, resolve_state_file, save_state,
 };
@@ -8,11 +11,13 @@ use cli_anything_repl::{DispatchOutcome, Repl, Skin};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::io::{self, IsTerminal};
+use std::sync::Arc;
 
 const SOFTWARE: &str = "drawio";
 const BINARY: &str = "cli-anything-drawio";
 const VERSION: &str = "1.0.0";
 const PROJECT_FORMAT: &str = "drawio";
+const BACKEND_CMD: &str = "draw.io";
 
 #[derive(Debug, Parser)]
 #[command(name = "cli-anything-drawio")]
@@ -143,11 +148,12 @@ fn main() -> Result<()> {
     let state_path = resolve_state_file(SOFTWARE);
     let mut state = load_or_seed_state(&state_path, SOFTWARE, BINARY, PROJECT_FORMAT)
         .with_context(|| format!("failed to load state from {}", state_path.display()))?;
+    let backend = backend_from_env();
     let skin = Skin::new(SOFTWARE, VERSION).with_skill_path("skills/SKILL.md");
 
     match app.action {
         Some(action) => {
-            let response = execute(action, &mut state);
+            let response = execute(action, &mut state, backend.as_ref());
             save_state(&state_path, &state)
                 .with_context(|| format!("failed to save state to {}", state_path.display()))?;
             print_response(&skin, &response, app.json);
@@ -160,7 +166,7 @@ fn main() -> Result<()> {
             );
         }
         None if io::stdin().is_terminal() => {
-            run_repl(skin, state, state_path)?;
+            run_repl(skin, state, state_path, backend)?;
         }
         None => {
             let summary = package_summary();
@@ -179,7 +185,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_repl(skin: Skin, mut state: ProjectState, state_path: std::path::PathBuf) -> Result<()> {
+fn run_repl(
+    skin: Skin,
+    mut state: ProjectState,
+    state_path: std::path::PathBuf,
+    backend: Arc<dyn Backend>,
+) -> Result<()> {
     let mut repl = Repl::new(skin.clone())
         .with_project_name(
             state
@@ -198,7 +209,7 @@ fn run_repl(skin: Skin, mut state: ProjectState, state_path: std::path::PathBuf)
         match App::try_parse_from(args) {
             Ok(parsed) => match parsed.action {
                 Some(action) => {
-                    let response = execute(action, &mut state);
+                    let response = execute(action, &mut state, backend.as_ref());
                     let rendered = serde_json::to_string_pretty(&response)
                         .unwrap_or_else(|err| format!("{{\"error\":\"{err}\"}}"));
                     if let Err(err) = save_state(&state_path, &state) {
@@ -241,16 +252,39 @@ fn print_response(skin: &Skin, response: &CommandResponse, as_json: bool) {
     }
 }
 
-fn execute(action: Action, state: &mut ProjectState) -> CommandResponse {
-    match action {
+fn execute(action: Action, state: &mut ProjectState, backend: &dyn Backend) -> CommandResponse {
+    let response = match action {
         Action::Diagram { command } => record(diagram_response(command), state),
         Action::Page { command } => record(page_response(command), state),
         Action::Shape { command } => record(shape_response(command), state),
         Action::Connection { command } => record(connection_response(command), state),
         Action::Style { command } => record(style_response(command), state),
-        Action::Export { command } => record(export_response(command), state),
+        Action::Export { command } => record(export_response(command, backend), state),
         Action::Session { command } => session_response(command, state),
-    }
+    };
+    stamp_backend(response, backend)
+}
+
+fn stamp_backend(mut response: CommandResponse, backend: &dyn Backend) -> CommandResponse {
+    response
+        .details
+        .insert("backend".to_string(), json!(backend.name()));
+    response
+}
+
+fn outcome_to_json(outcome: &BackendOutcome) -> Value {
+    let status = match outcome.status {
+        BackendStatus::DryRun => "dry-run",
+        BackendStatus::Success => "success",
+        BackendStatus::Failed => "failed",
+    };
+    json!({
+        "program": outcome.invocation.program,
+        "args": outcome.invocation.args,
+        "label": outcome.invocation.label,
+        "status": status,
+        "exit_code": outcome.exit_code,
+    })
 }
 
 fn record(response: CommandResponse, state: &mut ProjectState) -> CommandResponse {
@@ -465,49 +499,90 @@ fn style_response(command: StyleCommand) -> CommandResponse {
     }
 }
 
-fn export_response(command: ExportCommand) -> CommandResponse {
-    let command_name = export_command_name(&command);
-    let description = export_command_description(&command);
-
+fn export_response(command: ExportCommand, backend: &dyn Backend) -> CommandResponse {
     match command {
         ExportCommand::Svg { output } => {
-            let mut details = BTreeMap::new();
-            details.insert(
-                "export".to_string(),
-                json!({
-                    "format": "svg",
-                    "output": output,
-                    "status": "queued"
-                }),
+            let invocation = BackendInvocation::new(
+                BACKEND_CMD,
+                vec![
+                    "-x".to_string(),
+                    "--format".to_string(),
+                    "svg".to_string(),
+                    "-o".to_string(),
+                    output.clone(),
+                ],
+                "export-svg",
             );
-            command_response_with_details("export", command_name, description, details)
+            run_export(backend, invocation, "svg", json!({ "output": output }))
         }
         ExportCommand::Png { output, dpi } => {
-            let mut details = BTreeMap::new();
-            details.insert(
-                "export".to_string(),
-                json!({
-                    "format": "png",
-                    "output": output,
-                    "dpi": dpi,
-                    "status": "queued"
-                }),
+            let invocation = BackendInvocation::new(
+                BACKEND_CMD,
+                vec![
+                    "-x".to_string(),
+                    "--format".to_string(),
+                    "png".to_string(),
+                    "--scale".to_string(),
+                    format!("{}", (dpi as f64) / 96.0),
+                    "-o".to_string(),
+                    output.clone(),
+                ],
+                "export-png",
             );
-            command_response_with_details("export", command_name, description, details)
+            run_export(
+                backend,
+                invocation,
+                "png",
+                json!({ "output": output, "dpi": dpi }),
+            )
         }
         ExportCommand::Pdf { output } => {
-            let mut details = BTreeMap::new();
-            details.insert(
-                "export".to_string(),
-                json!({
-                    "format": "pdf",
-                    "output": output,
-                    "status": "queued"
-                }),
+            let invocation = BackendInvocation::new(
+                BACKEND_CMD,
+                vec![
+                    "-x".to_string(),
+                    "--format".to_string(),
+                    "pdf".to_string(),
+                    "-o".to_string(),
+                    output.clone(),
+                ],
+                "export-pdf",
             );
-            command_response_with_details("export", command_name, description, details)
+            run_export(backend, invocation, "pdf", json!({ "output": output }))
         }
     }
+}
+
+fn run_export(
+    backend: &dyn Backend,
+    invocation: BackendInvocation,
+    format: &'static str,
+    mut extra: Value,
+) -> CommandResponse {
+    let label = invocation.label.clone();
+    let outcome = backend
+        .execute(invocation)
+        .unwrap_or_else(|err| BackendOutcome {
+            invocation: BackendInvocation::new(BACKEND_CMD, Vec::new(), label.as_str()),
+            status: BackendStatus::Failed,
+            stdout: String::new(),
+            stderr: err.to_string(),
+            exit_code: None,
+        });
+    let mut details = BTreeMap::new();
+    if let Some(obj) = extra.as_object_mut() {
+        obj.insert("format".to_string(), json!(format));
+        obj.insert("status".to_string(), json!("queued"));
+    }
+    details.insert("export".to_string(), extra);
+    details.insert("invocation".to_string(), outcome_to_json(&outcome));
+    let description: &'static str = match format {
+        "svg" => "Export diagram as SVG",
+        "png" => "Export diagram as PNG",
+        "pdf" => "Export diagram as PDF",
+        _ => "Export diagram",
+    };
+    command_response_with_details("export", format, description, details)
 }
 
 fn session_response(command: SessionCommand, state: &mut ProjectState) -> CommandResponse {
@@ -632,14 +707,6 @@ fn style_command_name(command: &StyleCommand) -> &'static str {
     }
 }
 
-fn export_command_name(command: &ExportCommand) -> &'static str {
-    match command {
-        ExportCommand::Svg { .. } => "svg",
-        ExportCommand::Png { .. } => "png",
-        ExportCommand::Pdf { .. } => "pdf",
-    }
-}
-
 fn session_command_name(command: &SessionCommand) -> &'static str {
     match command {
         SessionCommand::Status => "status",
@@ -682,14 +749,6 @@ fn style_command_description(command: &StyleCommand) -> &'static str {
     match command {
         StyleCommand::Apply { .. } => "Apply a style",
         StyleCommand::List => "List available styles",
-    }
-}
-
-fn export_command_description(command: &ExportCommand) -> &'static str {
-    match command {
-        ExportCommand::Svg { .. } => "Export diagram as SVG",
-        ExportCommand::Png { .. } => "Export diagram as PNG",
-        ExportCommand::Pdf { .. } => "Export diagram as PDF",
     }
 }
 

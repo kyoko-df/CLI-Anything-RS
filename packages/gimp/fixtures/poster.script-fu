@@ -1,0 +1,21 @@
+; Sample GIMP script-fu snippet referenced by docs and smoke tests.
+;
+; This is NOT executed by default: `cli-anything-gimp` runs with the
+; dry-run backend and only records the invocation. Set
+; CLI_ANYTHING_BACKEND=system to actually run it through
+; `gimp -i -b`.
+;
+; Reproduces the "Create poster" example from packages/gimp/cli-anything.toml:
+; a blank 1920x1080 RGB image with a single text layer, exported as PNG.
+
+(let* ((image (car (gimp-image-new 1920 1080 RGB)))
+       (bg (car (gimp-layer-new image 1920 1080 RGB-IMAGE "background" 100 LAYER-MODE-NORMAL))))
+  (gimp-image-insert-layer image bg 0 -1)
+  (gimp-context-set-foreground '(255 255 255))
+  (gimp-image-select-rectangle image CHANNEL-OP-REPLACE 0 0 1920 1080)
+  (gimp-edit-fill bg FILL-FOREGROUND)
+  (gimp-image-flatten image)
+  (file-png-save RUN-NONINTERACTIVE image (car (gimp-image-get-active-drawable image))
+                 "/tmp/poster.png" "poster" 0 9 1 1 1 1 1)
+  (gimp-image-delete image))
+(gimp-quit 0)

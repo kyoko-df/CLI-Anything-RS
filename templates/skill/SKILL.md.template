@@ -1,0 +1,83 @@
+---
+name: {{binary}}
+description: {{description}}
+---
+# {{binary}}
+
+{{binary}} exposes a stateful Rust CLI workflow for {{software}}.
+
+## Installation
+
+This CLI is installed as part of the `{{binary}}` package.
+
+```bash
+cargo install --path packages/{{software}}
+```
+
+**Prerequisites:**
+
+- {{software}} must be installed on your system
+- Install {{software}}: `{{system_package}}`
+
+## Usage
+
+### Basic Commands
+
+```bash
+{{binary}} --help
+{{binary}}
+{{binary}} --json
+```
+
+### REPL Mode
+
+Invoke `{{binary}}` without a subcommand to enter an interactive session.
+
+## Command Groups
+
+{{#each command_groups}}
+### {{name}}
+
+{{description}}
+
+| Command | Description |
+|---------|-------------|
+{{#each commands}}
+| `{{name}}` | {{description}} |
+{{/each}}
+
+{{/each}}
+
+## Examples
+
+{{#each examples}}
+### {{title}}
+
+{{description}}
+
+```bash
+{{code}}
+```
+
+{{/each}}
+
+## State Management
+
+- Undo/redo friendly command execution
+- Project persistence through state files
+- Session tracking for modified buffers
+
+## Output Formats
+
+- Human-readable output for operators
+- Machine-readable JSON output for agents
+
+## For AI Agents
+
+1. Prefer `{{binary}} --json` when structured output is available
+2. Check exit codes before reading generated files
+3. Use absolute paths for package and fixture operations
+
+## Version
+
+{{version}}

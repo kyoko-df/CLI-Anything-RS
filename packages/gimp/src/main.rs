@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cli_anything_core::{CommandResponse, PackageSummary, ResponseDetails};
+use cli_anything_project::backend::{
+    Backend, BackendInvocation, BackendOutcome, BackendStatus, backend_from_env,
+};
 use cli_anything_project::{
     ActionRecord, ProjectState, load_or_seed_state, resolve_state_file, save_state,
 };
@@ -8,11 +11,13 @@ use cli_anything_repl::{DispatchOutcome, Repl, Skin};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::io::{self, IsTerminal};
+use std::sync::Arc;
 
 const SOFTWARE: &str = "gimp";
 const BINARY: &str = "cli-anything-gimp";
 const VERSION: &str = "1.0.0";
 const PROJECT_FORMAT: &str = "xcf";
+const BACKEND_CMD: &str = "gimp";
 
 #[derive(Debug, Parser)]
 #[command(name = "cli-anything-gimp")]
@@ -153,11 +158,12 @@ fn main() -> Result<()> {
     let state_path = resolve_state_file(SOFTWARE);
     let mut state = load_or_seed_state(&state_path, SOFTWARE, BINARY, PROJECT_FORMAT)
         .with_context(|| format!("failed to load state from {}", state_path.display()))?;
+    let backend = backend_from_env();
     let skin = Skin::new(SOFTWARE, VERSION).with_skill_path("skills/SKILL.md");
 
     match app.action {
         Some(action) => {
-            let response = execute(action, &mut state);
+            let response = execute(action, &mut state, backend.as_ref());
             save_state(&state_path, &state)
                 .with_context(|| format!("failed to save state to {}", state_path.display()))?;
             print_response(&skin, &response, app.json);
@@ -170,7 +176,7 @@ fn main() -> Result<()> {
             );
         }
         None if io::stdin().is_terminal() => {
-            run_repl(skin, state, state_path)?;
+            run_repl(skin, state, state_path, backend)?;
         }
         None => {
             let summary = package_summary();
@@ -189,7 +195,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_repl(skin: Skin, mut state: ProjectState, state_path: std::path::PathBuf) -> Result<()> {
+fn run_repl(
+    skin: Skin,
+    mut state: ProjectState,
+    state_path: std::path::PathBuf,
+    backend: Arc<dyn Backend>,
+) -> Result<()> {
     let mut repl = Repl::new(skin.clone())
         .with_project_name(
             state
@@ -208,7 +219,7 @@ fn run_repl(skin: Skin, mut state: ProjectState, state_path: std::path::PathBuf)
         match App::try_parse_from(args) {
             Ok(parsed) => match parsed.action {
                 Some(action) => {
-                    let response = execute(action, &mut state);
+                    let response = execute(action, &mut state, backend.as_ref());
                     let rendered = serde_json::to_string_pretty(&response)
                         .unwrap_or_else(|err| format!("{{\"error\":\"{err}\"}}"));
                     if let Err(err) = save_state(&state_path, &state) {
@@ -251,17 +262,40 @@ fn print_response(skin: &Skin, response: &CommandResponse, as_json: bool) {
     }
 }
 
-fn execute(action: Action, state: &mut ProjectState) -> CommandResponse {
-    match action {
+fn execute(action: Action, state: &mut ProjectState, backend: &dyn Backend) -> CommandResponse {
+    let response = match action {
         Action::Project { command } => record(project_response(command), state),
         Action::Layer { command } => record(layer_response(command), state),
         Action::Canvas { command } => record(canvas_response(command), state),
         Action::Filter { command } => record(filter_response(command), state),
         Action::Media { command } => record(media_response(command), state),
-        Action::Export { command } => record(export_response(command), state),
+        Action::Export { command } => record(export_response(command, backend), state),
         Action::Draw { command } => record(draw_response(command), state),
         Action::Session { command } => session_response(command, state),
-    }
+    };
+    stamp_backend(response, backend)
+}
+
+fn stamp_backend(mut response: CommandResponse, backend: &dyn Backend) -> CommandResponse {
+    response
+        .details
+        .insert("backend".to_string(), json!(backend.name()));
+    response
+}
+
+fn outcome_to_json(outcome: &BackendOutcome) -> Value {
+    let status = match outcome.status {
+        BackendStatus::DryRun => "dry-run",
+        BackendStatus::Success => "success",
+        BackendStatus::Failed => "failed",
+    };
+    json!({
+        "program": outcome.invocation.program,
+        "args": outcome.invocation.args,
+        "label": outcome.invocation.label,
+        "status": status,
+        "exit_code": outcome.exit_code,
+    })
 }
 
 fn record(response: CommandResponse, state: &mut ProjectState) -> CommandResponse {
@@ -483,12 +517,37 @@ fn filter_response(command: FilterCommand) -> CommandResponse {
     }
 }
 
-fn export_response(command: ExportCommand) -> CommandResponse {
+fn export_response(command: ExportCommand, backend: &dyn Backend) -> CommandResponse {
     let command_name = export_command_name(&command);
     let description = export_command_description(&command);
 
     match command {
-        ExportCommand::Image => command_response("export", command_name, description),
+        ExportCommand::Image => {
+            let invocation = BackendInvocation::new(
+                BACKEND_CMD,
+                vec![
+                    "-i".to_string(),
+                    "-b".to_string(),
+                    "(gimp-file-save RUN-NONINTERACTIVE 1 1 \"/tmp/export.png\" \"export\")"
+                        .to_string(),
+                    "-b".to_string(),
+                    "(gimp-quit 0)".to_string(),
+                ],
+                "export-image",
+            );
+            let outcome = backend
+                .execute(invocation)
+                .unwrap_or_else(|err| BackendOutcome {
+                    invocation: BackendInvocation::new(BACKEND_CMD, Vec::new(), "export-image"),
+                    status: BackendStatus::Failed,
+                    stdout: String::new(),
+                    stderr: err.to_string(),
+                    exit_code: None,
+                });
+            let mut details = BTreeMap::new();
+            details.insert("invocation".to_string(), outcome_to_json(&outcome));
+            command_response_with_details("export", command_name, description, details)
+        }
         ExportCommand::Presets => {
             let mut details = BTreeMap::new();
             details.insert("preset_count".to_string(), json!(3));
