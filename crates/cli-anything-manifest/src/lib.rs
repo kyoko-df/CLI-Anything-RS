@@ -183,6 +183,9 @@ fn gimp_package_spec() -> KnownPackageSpec {
                 &[
                     ("status", "Show session status"),
                     ("undo", "Undo the last action"),
+                    ("redo", "Redo the last undone action"),
+                    ("history", "List recorded actions"),
+                    ("save", "Mark the session clean"),
                 ],
             ),
             command_group(
@@ -195,12 +198,12 @@ fn gimp_package_spec() -> KnownPackageSpec {
             example(
                 "Create poster",
                 "Create a new raster project for poster work.",
-                "cli-anything-gimp project new --width 1920 --height 1080 -o poster.json",
+                "cli-anything-gimp project new --name poster --width 1920 --height 1080",
             ),
             example(
                 "Add filter",
-                "Apply a brightness filter to the active layer.",
-                "cli-anything-gimp filter add brightness --layer 0 --param factor=1.3",
+                "Apply the default filter command to the active composition.",
+                "cli-anything-gimp filter add",
             ),
         ],
     }
@@ -271,7 +274,10 @@ fn blender_package_spec() -> KnownPackageSpec {
                 "Session tracking commands",
                 &[
                     ("status", "Show session state"),
+                    ("undo", "Undo the last action"),
+                    ("redo", "Redo the last undone action"),
                     ("history", "Inspect action history"),
+                    ("save", "Mark the session clean"),
                 ],
             ),
         ],
@@ -279,12 +285,12 @@ fn blender_package_spec() -> KnownPackageSpec {
             example(
                 "Create scene",
                 "Create a fresh Blender scene file.",
-                "cli-anything-blender scene new -o demo.blend",
+                "cli-anything-blender scene new --name demo",
             ),
             example(
                 "Render frame",
                 "Render the active frame to a PNG file.",
-                "cli-anything-blender render frame --output frame.png",
+                "cli-anything-blender render frame --frame 12 --format png",
             ),
         ],
     }
@@ -301,24 +307,11 @@ fn drawio_package_spec() -> KnownPackageSpec {
         state_file: ".drawio-cli.json".to_string(),
         command_groups: vec![
             command_group(
-                "project",
+                "diagram",
                 "Diagram project commands",
                 &[
                     ("new", "Create a new diagram"),
-                    ("info", "Show project metadata"),
-                ],
-            ),
-            command_group(
-                "shape",
-                "Shape creation commands",
-                &[("add", "Add a shape"), ("types", "List shape types")],
-            ),
-            command_group(
-                "connect",
-                "Connector authoring commands",
-                &[
-                    ("add", "Create a connector"),
-                    ("styles", "List connector styles"),
+                    ("info", "Inspect the active diagram"),
                 ],
             ),
             command_group(
@@ -327,29 +320,54 @@ fn drawio_package_spec() -> KnownPackageSpec {
                 &[("add", "Add a page"), ("list", "List pages")],
             ),
             command_group(
+                "shape",
+                "Shape authoring commands",
+                &[("add", "Add a shape"), ("list", "List shapes")],
+            ),
+            command_group(
+                "connection",
+                "Connection authoring commands",
+                &[("add", "Connect two shapes"), ("list", "List connections")],
+            ),
+            command_group(
+                "style",
+                "Style management commands",
+                &[
+                    ("apply", "Apply a style"),
+                    ("list", "List available styles"),
+                ],
+            ),
+            command_group(
                 "export",
                 "Export commands",
-                &[("diagram", "Export a diagram"), ("formats", "List formats")],
+                &[
+                    ("svg", "Export diagram as SVG"),
+                    ("png", "Export diagram as PNG"),
+                    ("pdf", "Export diagram as PDF"),
+                ],
             ),
             command_group(
                 "session",
                 "Session management commands",
                 &[
                     ("status", "Show current session"),
-                    ("save", "Persist session state"),
+                    ("undo", "Undo the last action"),
+                    ("redo", "Redo the last undone action"),
+                    ("history", "List recorded actions"),
+                    ("save", "Mark the session clean"),
                 ],
             ),
         ],
         examples: vec![
             example(
                 "Create diagram",
-                "Create a new diagram file.",
-                "cli-anything-drawio project new -o architecture.drawio",
+                "Create a new diagram session.",
+                "cli-anything-drawio diagram new --name architecture --template flowchart",
             ),
             example(
                 "Add rectangle",
                 "Add a rectangle shape to the current page.",
-                "cli-anything-drawio shape add rectangle --text API",
+                "cli-anything-drawio shape add --kind rectangle --x 120 --y 80",
             ),
         ],
     }

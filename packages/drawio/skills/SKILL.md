@@ -36,32 +36,14 @@ Invoke `cli-anything-drawio` without a subcommand to enter an interactive sessio
 
 ## Command Groups
 
-### project
+### diagram
 
 Diagram project commands
 
 | Command | Description |
 |---------|-------------|
 | `new` | Create a new diagram |
-| `info` | Show project metadata |
-
-### shape
-
-Shape creation commands
-
-| Command | Description |
-|---------|-------------|
-| `add` | Add a shape |
-| `types` | List shape types |
-
-### connect
-
-Connector authoring commands
-
-| Command | Description |
-|---------|-------------|
-| `add` | Create a connector |
-| `styles` | List connector styles |
+| `info` | Inspect the active diagram |
 
 ### page
 
@@ -72,14 +54,42 @@ Page management commands
 | `add` | Add a page |
 | `list` | List pages |
 
+### shape
+
+Shape authoring commands
+
+| Command | Description |
+|---------|-------------|
+| `add` | Add a shape |
+| `list` | List shapes |
+
+### connection
+
+Connection authoring commands
+
+| Command | Description |
+|---------|-------------|
+| `add` | Connect two shapes |
+| `list` | List connections |
+
+### style
+
+Style management commands
+
+| Command | Description |
+|---------|-------------|
+| `apply` | Apply a style |
+| `list` | List available styles |
+
 ### export
 
 Export commands
 
 | Command | Description |
 |---------|-------------|
-| `diagram` | Export a diagram |
-| `formats` | List formats |
+| `svg` | Export diagram as SVG |
+| `png` | Export diagram as PNG |
+| `pdf` | Export diagram as PDF |
 
 ### session
 
@@ -88,16 +98,19 @@ Session management commands
 | Command | Description |
 |---------|-------------|
 | `status` | Show current session |
-| `save` | Persist session state |
+| `undo` | Undo the last action |
+| `redo` | Redo the last undone action |
+| `history` | List recorded actions |
+| `save` | Mark the session clean |
 
 ## Examples
 
 ### Create diagram
 
-Create a new diagram file.
+Create a new diagram session.
 
 ```bash
-cli-anything-drawio project new -o architecture.drawio
+cli-anything-drawio diagram new --name architecture --template flowchart
 ```
 
 ### Add rectangle
@@ -105,7 +118,7 @@ cli-anything-drawio project new -o architecture.drawio
 Add a rectangle shape to the current page.
 
 ```bash
-cli-anything-drawio shape add rectangle --text API
+cli-anything-drawio shape add --kind rectangle --x 120 --y 80
 ```
 
 ## State Management

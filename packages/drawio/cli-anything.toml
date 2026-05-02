@@ -19,7 +19,7 @@ output = "packages/drawio/skills/SKILL.md"
 template = "cli-anything-plugin/templates/SKILL.md.template"
 
 [[command_groups]]
-name = "project"
+name = "diagram"
 description = "Diagram project commands"
 
 [[command_groups.commands]]
@@ -28,31 +28,7 @@ description = "Create a new diagram"
 
 [[command_groups.commands]]
 name = "info"
-description = "Show project metadata"
-
-[[command_groups]]
-name = "shape"
-description = "Shape creation commands"
-
-[[command_groups.commands]]
-name = "add"
-description = "Add a shape"
-
-[[command_groups.commands]]
-name = "types"
-description = "List shape types"
-
-[[command_groups]]
-name = "connect"
-description = "Connector authoring commands"
-
-[[command_groups.commands]]
-name = "add"
-description = "Create a connector"
-
-[[command_groups.commands]]
-name = "styles"
-description = "List connector styles"
+description = "Inspect the active diagram"
 
 [[command_groups]]
 name = "page"
@@ -67,16 +43,56 @@ name = "list"
 description = "List pages"
 
 [[command_groups]]
+name = "shape"
+description = "Shape authoring commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Add a shape"
+
+[[command_groups.commands]]
+name = "list"
+description = "List shapes"
+
+[[command_groups]]
+name = "connection"
+description = "Connection authoring commands"
+
+[[command_groups.commands]]
+name = "add"
+description = "Connect two shapes"
+
+[[command_groups.commands]]
+name = "list"
+description = "List connections"
+
+[[command_groups]]
+name = "style"
+description = "Style management commands"
+
+[[command_groups.commands]]
+name = "apply"
+description = "Apply a style"
+
+[[command_groups.commands]]
+name = "list"
+description = "List available styles"
+
+[[command_groups]]
 name = "export"
 description = "Export commands"
 
 [[command_groups.commands]]
-name = "diagram"
-description = "Export a diagram"
+name = "svg"
+description = "Export diagram as SVG"
 
 [[command_groups.commands]]
-name = "formats"
-description = "List formats"
+name = "png"
+description = "Export diagram as PNG"
+
+[[command_groups.commands]]
+name = "pdf"
+description = "Export diagram as PDF"
 
 [[command_groups]]
 name = "session"
@@ -87,15 +103,27 @@ name = "status"
 description = "Show current session"
 
 [[command_groups.commands]]
+name = "undo"
+description = "Undo the last action"
+
+[[command_groups.commands]]
+name = "redo"
+description = "Redo the last undone action"
+
+[[command_groups.commands]]
+name = "history"
+description = "List recorded actions"
+
+[[command_groups.commands]]
 name = "save"
-description = "Persist session state"
+description = "Mark the session clean"
 
 [[examples]]
 title = "Create diagram"
-description = "Create a new diagram file."
-code = "cli-anything-drawio project new -o architecture.drawio"
+description = "Create a new diagram session."
+code = "cli-anything-drawio diagram new --name architecture --template flowchart"
 
 [[examples]]
 title = "Add rectangle"
 description = "Add a rectangle shape to the current page."
-code = "cli-anything-drawio shape add rectangle --text API"
+code = "cli-anything-drawio shape add --kind rectangle --x 120 --y 80"

@@ -97,7 +97,7 @@ alongside the code change.
 ### Emit integration docs for a curated package
 
 ```bash
-cargo run -p cli-anything -- build ./gimp --emit-integrations
+cargo run -p cli-anything-cli -- build ./gimp --emit-integrations
 ls packages/gimp/integrations/
 # CLAUDE.md  codex.yaml  hub.md  opencode.md
 ```

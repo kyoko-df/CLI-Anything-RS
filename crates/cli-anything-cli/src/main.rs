@@ -5,8 +5,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cli_anything_core::{
     BuiltinCommandId, CliAnythingManifest, ValidationCategory, ValidationCheck, ValidationReport,
-    builtin_command_documents, command_document, load_manifest_from_path, package_layout,
-    parse_source_target,
+    builtin_command_documents, builtin_package_spec, command_document, load_manifest_from_path,
+    package_layout, parse_source_target,
 };
 use cli_anything_generator::{GeneratedPackage, generate_package};
 use cli_anything_integrations::{IntegrationOutput, render_all_integrations};
@@ -461,24 +461,30 @@ fn validate_package(workspace_root: &Path, source: &str) -> Result<ValidationRep
         },
     ];
 
-    let manifest_checks = match load_manifest_from_path(&layout.manifest) {
-        Ok(manifest) => vec![
-            ValidationCheck {
-                label: "manifest name".to_string(),
-                passed: manifest.name == target.software_name,
-                detail: manifest.name,
-            },
-            ValidationCheck {
-                label: "binary prefix".to_string(),
-                passed: manifest.binary.starts_with("cli-anything-"),
-                detail: manifest.binary,
-            },
-        ],
-        Err(error) => vec![ValidationCheck {
-            label: "manifest parse".to_string(),
-            passed: false,
-            detail: error.to_string(),
-        }],
+    let (manifest_checks, consistency_checks) = match load_manifest_from_path(&layout.manifest) {
+        Ok(manifest) => (
+            vec![
+                ValidationCheck {
+                    label: "manifest name".to_string(),
+                    passed: manifest.name == target.software_name,
+                    detail: manifest.name.clone(),
+                },
+                ValidationCheck {
+                    label: "binary prefix".to_string(),
+                    passed: manifest.binary.starts_with("cli-anything-"),
+                    detail: manifest.binary.clone(),
+                },
+            ],
+            manifest_consistency_checks(&target.software_name, &manifest),
+        ),
+        Err(error) => (
+            vec![ValidationCheck {
+                label: "manifest parse".to_string(),
+                passed: false,
+                detail: error.to_string(),
+            }],
+            Vec::new(),
+        ),
     };
 
     Ok(ValidationReport {
@@ -493,8 +499,45 @@ fn validate_package(workspace_root: &Path, source: &str) -> Result<ValidationRep
                 name: "manifest".to_string(),
                 checks: manifest_checks,
             },
+            ValidationCategory {
+                name: "consistency".to_string(),
+                checks: consistency_checks,
+            },
         ],
     })
+}
+
+fn manifest_consistency_checks(
+    software_name: &str,
+    manifest: &CliAnythingManifest,
+) -> Vec<ValidationCheck> {
+    let Some(spec) = builtin_package_spec(software_name) else {
+        return Vec::new();
+    };
+
+    let actual = command_surface(&manifest.command_groups);
+    let expected = command_surface(&spec.command_groups);
+
+    vec![ValidationCheck {
+        label: "command groups match clap surface".to_string(),
+        passed: actual == expected,
+        detail: format!("manifest={actual:?}; curated={expected:?}"),
+    }]
+}
+
+fn command_surface(command_groups: &[cli_anything_core::CommandGroup]) -> Vec<String> {
+    command_groups
+        .iter()
+        .map(|group| {
+            let commands = group
+                .commands
+                .iter()
+                .map(|command| command.name.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{}[{commands}]", group.name)
+        })
+        .collect()
 }
 
 fn list_packages(scan_root: &Path, depth: Option<usize>) -> Result<Vec<PackageListEntry>> {
@@ -718,6 +761,7 @@ fn render_list_text(entries: &[PackageListEntry]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_test_dir(prefix: &str) -> PathBuf {
@@ -778,7 +822,7 @@ mod tests {
                 .manifest
                 .command_groups
                 .iter()
-                .any(|group| group.name == "connect")
+                .any(|group| group.name == "connection")
         );
 
         fs::remove_dir_all(&workspace).expect("workspace should be removed");
@@ -814,6 +858,26 @@ mod tests {
         assert!(report.is_pass());
 
         fs::remove_dir_all(&workspace).expect("workspace should be removed");
+    }
+
+    #[test]
+    fn validate_reports_drawio_manifest_command_group_consistency() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("workspace root should exist");
+
+        let report = validate_package(workspace, "./drawio").expect("validation should succeed");
+
+        assert!(
+            report.categories.iter().any(|category| {
+                category.name == "consistency"
+                    && category.checks.iter().any(|check| {
+                        check.label == "command groups match clap surface" && check.passed
+                    })
+            }),
+            "validate should report manifest/clap consistency for drawio"
+        );
     }
 
     #[test]

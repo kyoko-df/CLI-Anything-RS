@@ -126,12 +126,24 @@ description = "Show session state"
 name = "history"
 description = "Inspect action history"
 
+[[command_groups.commands]]
+name = "undo"
+description = "Undo the last action"
+
+[[command_groups.commands]]
+name = "redo"
+description = "Redo the last undone action"
+
+[[command_groups.commands]]
+name = "save"
+description = "Mark the session clean"
+
 [[examples]]
 title = "Create scene"
 description = "Create a fresh Blender scene file."
-code = "cli-anything-blender scene new -o demo.blend"
+code = "cli-anything-blender scene new --name demo"
 
 [[examples]]
 title = "Render frame"
 description = "Render the active frame to a PNG file."
-code = "cli-anything-blender render frame --output frame.png"
+code = "cli-anything-blender render frame --frame 12 --format png"

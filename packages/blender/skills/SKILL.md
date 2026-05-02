@@ -116,6 +116,9 @@ Session tracking commands
 |---------|-------------|
 | `status` | Show session state |
 | `history` | Inspect action history |
+| `undo` | Undo the last action |
+| `redo` | Redo the last undone action |
+| `save` | Mark the session clean |
 
 ## Examples
 
@@ -124,7 +127,7 @@ Session tracking commands
 Create a fresh Blender scene file.
 
 ```bash
-cli-anything-blender scene new -o demo.blend
+cli-anything-blender scene new --name demo
 ```
 
 ### Render frame
@@ -132,7 +135,7 @@ cli-anything-blender scene new -o demo.blend
 Render the active frame to a PNG file.
 
 ```bash
-cli-anything-blender render frame --output frame.png
+cli-anything-blender render frame --frame 12 --format png
 ```
 
 ## State Management

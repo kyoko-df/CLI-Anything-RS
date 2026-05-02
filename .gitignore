@@ -12,7 +12,7 @@ Cargo.lock
 .idea/
 *.iml
 
-# IDE - Vim/Neovim
+## IDE - Vim/Neovim
 *.swp
 *.swo
 *~
@@ -43,3 +43,9 @@ Desktop.ini
 # Build artifacts
 dist/
 build/
+
+# Documentation
+docs/
+
+# Claude
+.claude/

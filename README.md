@@ -37,6 +37,9 @@ packages/
 
 All commands accept `--json` for machine-readable output.
 
+When running through Cargo, the workspace package name is `cli-anything-cli`
+while the compiled binary name remains `cli-anything`.
+
 ## Getting started
 
 ```bash
@@ -59,9 +62,9 @@ Requirements:
 ## Development
 
 ```bash
-cargo fmt --all -- --check
+cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo test --workspace --all-targets
 ```
 
 The same checks run in CI on every pull request (see

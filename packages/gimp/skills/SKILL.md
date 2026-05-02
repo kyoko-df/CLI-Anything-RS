@@ -98,6 +98,9 @@ Session history and persistence commands
 |---------|-------------|
 | `status` | Show session status |
 | `undo` | Undo the last action |
+| `redo` | Redo the last undone action |
+| `history` | List recorded actions |
+| `save` | Mark the session clean |
 
 ### draw
 
@@ -115,15 +118,15 @@ Drawing primitive commands
 Create a new raster project for poster work.
 
 ```bash
-cli-anything-gimp project new --width 1920 --height 1080 -o poster.json
+cli-anything-gimp project new --name poster --width 1920 --height 1080
 ```
 
 ### Add filter
 
-Apply a brightness filter to the active layer.
+Apply the default filter command to the active composition.
 
 ```bash
-cli-anything-gimp filter add brightness --layer 0 --param factor=1.3
+cli-anything-gimp filter add
 ```
 
 ## State Management
