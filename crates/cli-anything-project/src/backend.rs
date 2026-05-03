@@ -235,6 +235,12 @@ pub fn ensure_success(outcome: &BackendOutcome) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn dry_run_backend_records_invocations_without_running() {
@@ -298,6 +304,7 @@ mod tests {
 
     #[test]
     fn backend_from_env_defaults_to_dry_run() {
+        let _guard = env_lock().lock().expect("env lock should be available");
         let key = BACKEND_MODE_ENV;
         let previous = std::env::var(key).ok();
         unsafe {
@@ -314,6 +321,7 @@ mod tests {
 
     #[test]
     fn backend_from_env_switches_to_system_when_requested() {
+        let _guard = env_lock().lock().expect("env lock should be available");
         let key = BACKEND_MODE_ENV;
         let previous = std::env::var(key).ok();
         unsafe {

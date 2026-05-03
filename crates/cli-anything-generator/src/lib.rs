@@ -800,48 +800,48 @@ fn render_group_response_fn(group: &CommandGroup) -> String {
 }
 
 fn render_response_match_arm(group: &CommandGroup, command: &CommandSpec) -> String {
-    let variant = to_pascal_case(&command.name);
+    let pattern = response_command_pattern(group, command);
     match (group.name.as_str(), command.name.as_str()) {
         ("project", "new") => format!(
-            "        {variant} {{\n            name,\n            width,\n            height,\n            color_mode,\n        }} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"project\".to_string(),\n                json!({{\n                    \"name\": name,\n                    \"width\": width,\n                    \"height\": height,\n                    \"color_mode\": color_mode,\n                    \"background\": \"transparent\",\n                    \"dpi\": 300,\n                    \"layer_count\": 1\n                }}),\n            );\n            command_response_with_details(\"project\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"project\".to_string(),\n                json!({{\n                    \"name\": name,\n                    \"width\": width,\n                    \"height\": height,\n                    \"color_mode\": color_mode,\n                    \"background\": \"transparent\",\n                    \"dpi\": 300,\n                    \"layer_count\": 1\n                }}),\n            );\n            command_response_with_details(\"project\", command_name, description, details)\n        }},\n"
         ),
         ("project", "info") => format!(
-            "        {variant} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"project_format\".to_string(), json!(PROJECT_FORMAT));\n            details.insert(\n                \"default_template\".to_string(),\n                json!({{\n                    \"name\": \"default-project\",\n                    \"width\": 1920,\n                    \"height\": 1080,\n                    \"background\": \"transparent\"\n                }}),\n            );\n            command_response_with_details(\"project\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"project_format\".to_string(), json!(PROJECT_FORMAT));\n            details.insert(\n                \"default_template\".to_string(),\n                json!({{\n                    \"name\": \"default-project\",\n                    \"width\": 1920,\n                    \"height\": 1080,\n                    \"background\": \"transparent\"\n                }}),\n            );\n            command_response_with_details(\"project\", command_name, description, details)\n        }},\n"
         ),
         ("layer", "list") => format!(
-            "        {variant} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"layer_count\".to_string(), json!(3));\n            details.insert(\n                \"layers\".to_string(),\n                json!([\n                    {{ \"name\": \"Background\", \"visible\": true, \"blend_mode\": \"normal\" }},\n                    {{ \"name\": \"Foreground\", \"visible\": true, \"blend_mode\": \"normal\" }},\n                    {{ \"name\": \"Effects\", \"visible\": true, \"blend_mode\": \"screen\" }}\n                ]),\n            );\n            command_response_with_details(\"layer\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"layer_count\".to_string(), json!(3));\n            details.insert(\n                \"layers\".to_string(),\n                json!([\n                    {{ \"name\": \"Background\", \"visible\": true, \"blend_mode\": \"normal\" }},\n                    {{ \"name\": \"Foreground\", \"visible\": true, \"blend_mode\": \"normal\" }},\n                    {{ \"name\": \"Effects\", \"visible\": true, \"blend_mode\": \"screen\" }}\n                ]),\n            );\n            command_response_with_details(\"layer\", command_name, description, details)\n        }},\n"
         ),
         ("canvas", "info") => format!(
-            "        {variant} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"canvas\".to_string(),\n                json!({{\n                    \"width\": 1920,\n                    \"height\": 1080,\n                    \"units\": \"px\",\n                    \"resolution\": 300\n                }}),\n            );\n            command_response_with_details(\"canvas\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"canvas\".to_string(),\n                json!({{\n                    \"width\": 1920,\n                    \"height\": 1080,\n                    \"units\": \"px\",\n                    \"resolution\": 300\n                }}),\n            );\n            command_response_with_details(\"canvas\", command_name, description, details)\n        }},\n"
         ),
         ("canvas", "resize") => format!(
-            "        {variant} {{ width, height }} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"canvas\".to_string(),\n                json!({{\n                    \"width\": width,\n                    \"height\": height,\n                    \"units\": \"px\",\n                    \"anchor\": \"center\"\n                }}),\n            );\n            command_response_with_details(\"canvas\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"canvas\".to_string(),\n                json!({{\n                    \"width\": width,\n                    \"height\": height,\n                    \"units\": \"px\",\n                    \"anchor\": \"center\"\n                }}),\n            );\n            command_response_with_details(\"canvas\", command_name, description, details)\n        }},\n"
         ),
         ("filter", "list") => format!(
-            "        {variant} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"filter_count\".to_string(), json!(4));\n            details.insert(\n                \"filters\".to_string(),\n                json!([\n                    {{ \"name\": \"brightness\", \"category\": \"color\" }},\n                    {{ \"name\": \"contrast\", \"category\": \"color\" }},\n                    {{ \"name\": \"gaussian-blur\", \"category\": \"blur\" }},\n                    {{ \"name\": \"unsharp-mask\", \"category\": \"sharpen\" }}\n                ]),\n            );\n            command_response_with_details(\"filter\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"filter_count\".to_string(), json!(4));\n            details.insert(\n                \"filters\".to_string(),\n                json!([\n                    {{ \"name\": \"brightness\", \"category\": \"color\" }},\n                    {{ \"name\": \"contrast\", \"category\": \"color\" }},\n                    {{ \"name\": \"gaussian-blur\", \"category\": \"blur\" }},\n                    {{ \"name\": \"unsharp-mask\", \"category\": \"sharpen\" }}\n                ]),\n            );\n            command_response_with_details(\"filter\", command_name, description, details)\n        }},\n"
         ),
         ("media", "import") => format!(
-            "        {variant} {{ path, slot }} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"asset\".to_string(),\n                json!({{\n                    \"path\": path,\n                    \"slot\": slot,\n                    \"kind\": \"image\",\n                    \"status\": \"queued\"\n                }}),\n            );\n            command_response_with_details(\"media\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"asset\".to_string(),\n                json!({{\n                    \"path\": path,\n                    \"slot\": slot,\n                    \"kind\": \"image\",\n                    \"status\": \"queued\"\n                }}),\n            );\n            command_response_with_details(\"media\", command_name, description, details)\n        }},\n"
         ),
         ("media", "list") => format!(
-            "        {variant} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"asset_count\".to_string(), json!(2));\n            details.insert(\n                \"assets\".to_string(),\n                json!([\n                    {{ \"path\": \"fixtures/reference.png\", \"slot\": \"reference\", \"kind\": \"image\" }},\n                    {{ \"path\": \"fixtures/texture.png\", \"slot\": \"texture\", \"kind\": \"image\" }}\n                ]),\n            );\n            command_response_with_details(\"media\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"asset_count\".to_string(), json!(2));\n            details.insert(\n                \"assets\".to_string(),\n                json!([\n                    {{ \"path\": \"fixtures/reference.png\", \"slot\": \"reference\", \"kind\": \"image\" }},\n                    {{ \"path\": \"fixtures/texture.png\", \"slot\": \"texture\", \"kind\": \"image\" }}\n                ]),\n            );\n            command_response_with_details(\"media\", command_name, description, details)\n        }},\n"
         ),
         ("export", "image") => format!(
-            "        {variant} => {{\n            let invocation = BackendInvocation::new(\n                BACKEND_CMD,\n                vec![\n                    \"-i\".to_string(),\n                    \"-b\".to_string(),\n                    \"(generated-export-command)\".to_string(),\n                ],\n                \"export-image\",\n            );\n            let outcome = backend.execute(invocation).unwrap_or_else(|err| BackendOutcome {{\n                invocation: BackendInvocation::new(BACKEND_CMD, Vec::new(), \"export-image\"),\n                status: BackendStatus::Failed,\n                stdout: String::new(),\n                stderr: err.to_string(),\n                exit_code: None,\n            }});\n            let mut details = BTreeMap::new();\n            details.insert(\"invocation\".to_string(), outcome_to_json(&outcome));\n            command_response_with_details(\"export\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let invocation = BackendInvocation::new(\n                BACKEND_CMD,\n                vec![\n                    \"-i\".to_string(),\n                    \"-b\".to_string(),\n                    \"(generated-export-command)\".to_string(),\n                ],\n                \"export-image\",\n            );\n            let outcome = backend.execute(invocation).unwrap_or_else(|err| BackendOutcome {{\n                invocation: BackendInvocation::new(BACKEND_CMD, Vec::new(), \"export-image\"),\n                status: BackendStatus::Failed,\n                stdout: String::new(),\n                stderr: err.to_string(),\n                exit_code: None,\n            }});\n            let mut details = BTreeMap::new();\n            details.insert(\"invocation\".to_string(), outcome_to_json(&outcome));\n            command_response_with_details(\"export\", command_name, description, details)\n        }},\n"
         ),
         ("export", "presets") => format!(
-            "        {variant} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"preset_count\".to_string(), json!(3));\n            details.insert(\n                \"presets\".to_string(),\n                json!([\n                    {{ \"name\": \"web-png\", \"format\": \"png\" }},\n                    {{ \"name\": \"print-jpeg\", \"format\": \"jpeg\" }},\n                    {{ \"name\": \"archive-tiff\", \"format\": \"tiff\" }}\n                ]),\n            );\n            command_response_with_details(\"export\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\"preset_count\".to_string(), json!(3));\n            details.insert(\n                \"presets\".to_string(),\n                json!([\n                    {{ \"name\": \"web-png\", \"format\": \"png\" }},\n                    {{ \"name\": \"print-jpeg\", \"format\": \"jpeg\" }},\n                    {{ \"name\": \"archive-tiff\", \"format\": \"tiff\" }}\n                ]),\n            );\n            command_response_with_details(\"export\", command_name, description, details)\n        }},\n"
         ),
         ("draw", "line") => format!(
-            "        {variant} {{ x1, y1, x2, y2 }} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"stroke\".to_string(),\n                json!({{\n                    \"tool\": \"paintbrush\",\n                    \"start\": {{ \"x\": x1, \"y\": y1 }},\n                    \"end\": {{ \"x\": x2, \"y\": y2 }}\n                }}),\n            );\n            command_response_with_details(\"draw\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"stroke\".to_string(),\n                json!({{\n                    \"tool\": \"paintbrush\",\n                    \"start\": {{ \"x\": x1, \"y\": y1 }},\n                    \"end\": {{ \"x\": x2, \"y\": y2 }}\n                }}),\n            );\n            command_response_with_details(\"draw\", command_name, description, details)\n        }},\n"
         ),
         ("draw", "rectangle") => format!(
-            "        {variant} {{ x, y, width, height }} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"shape\".to_string(),\n                json!({{\n                    \"x\": x,\n                    \"y\": y,\n                    \"width\": width,\n                    \"height\": height,\n                    \"fill\": \"none\"\n                }}),\n            );\n            command_response_with_details(\"draw\", command_name, description, details)\n        }},\n"
+            "        {pattern} => {{\n            let mut details = BTreeMap::new();\n            details.insert(\n                \"shape\".to_string(),\n                json!({{\n                    \"x\": x,\n                    \"y\": y,\n                    \"width\": width,\n                    \"height\": height,\n                    \"fill\": \"none\"\n                }}),\n            );\n            command_response_with_details(\"draw\", command_name, description, details)\n        }},\n"
         ),
         _ => format!(
             "        {pattern} => command_response({}, command_name, description),\n",
             rust_string(&group.name),
-            pattern = render_command_pattern(group, command)
+            pattern = qualified_command_pattern(group, command)
         ),
     }
 }
@@ -865,6 +865,30 @@ fn render_command_pattern(group: &CommandGroup, command: &CommandSpec) -> String
         format!("{variant} {{ .. }}")
     } else {
         variant
+    }
+}
+
+fn qualified_command_pattern(group: &CommandGroup, command: &CommandSpec) -> String {
+    let group_type = to_pascal_case(&group.name);
+    format!(
+        "{group_type}Command::{}",
+        render_command_pattern(group, command)
+    )
+}
+
+fn response_command_pattern(group: &CommandGroup, command: &CommandSpec) -> String {
+    let group_type = to_pascal_case(&group.name);
+    match (group.name.as_str(), command.name.as_str()) {
+        ("project", "new") => {
+            format!("{group_type}Command::New {{ name, width, height, color_mode }}")
+        }
+        ("canvas", "resize") => format!("{group_type}Command::Resize {{ width, height }}"),
+        ("media", "import") => format!("{group_type}Command::Import {{ path, slot }}"),
+        ("draw", "line") => format!("{group_type}Command::Line {{ x1, y1, x2, y2 }}"),
+        ("draw", "rectangle") => {
+            format!("{group_type}Command::Rectangle {{ x, y, width, height }}")
+        }
+        _ => qualified_command_pattern(group, command),
     }
 }
 
@@ -903,160 +927,6 @@ fn rust_string(value: &str) -> String {
     format!("{value:?}")
 }
 
-/*
-pub fn render_package_main_rs(manifest: &CliAnythingManifest) -> String {
-    let action_variants = manifest
-        .command_groups
-        .iter()
-        .map(|group| {
-            let group_type = to_pascal_case(&group.name);
-            format!(
-                "    {group_type} {{\n        #[command(subcommand)]\n        command: {group_type}Command,\n    }},\n"
-            )
-        })
-        .collect::<String>();
-    let command_enums = manifest
-        .command_groups
-        .iter()
-        .map(render_command_group_enum)
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let command_name_fns = manifest
-        .command_groups
-        .iter()
-        .map(render_command_name_fn)
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let command_description_fns = manifest
-        .command_groups
-        .iter()
-        .map(render_command_description_fn)
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let command_match_arms = manifest
-        .command_groups
-        .iter()
-        .map(|group| {
-            let group_type = to_pascal_case(&group.name);
-            let helper_name = format!("{}_command_name", to_snake_case(&group.name));
-            let helper_description =
-                format!("{}_command_description", to_snake_case(&group.name));
-            format!(
-                "        Action::{group_type} {{ command }} => command_response(\"{group_name}\", {helper_name}(&command), {helper_description}(&command)),\n",
-                group_name = group.name,
-            )
-        })
-        .collect::<String>();
-    let command_groups = manifest
-        .command_groups
-        .iter()
-        .map(|group| format!("\"{}\"", group.name))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let command_group_list = manifest
-        .command_groups
-        .iter()
-        .map(|group| group.name.clone())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let skill_path = manifest.skill.output.clone();
-
-    format!(
-        "use clap::{{Parser, Subcommand}};\nuse cli_anything_repl::Skin;\nuse serde::Serialize;\n\n#[derive(Debug, Parser)]\n#[command(name = \"{binary}\")]\n#[command(about = \"{description}\")]\nstruct App {{\n    #[arg(long)]\n    json: bool,\n    #[command(subcommand)]\n    action: Option<Action>,\n}}\n\n#[derive(Debug, Subcommand)]\nenum Action {{\n{action_variants}}}\n\n{command_enums}\n\n#[derive(Debug, Serialize)]\nstruct PackageSummary {{\n    name: &'static str,\n    binary: &'static str,\n    version: &'static str,\n    description: &'static str,\n    project_format: &'static str,\n    skill_path: &'static str,\n    command_groups: Vec<&'static str>,\n    supports_json: bool,\n    repl_default: bool,\n}}\n\n#[derive(Debug, Serialize)]\nstruct CommandResponse {{\n    software: &'static str,\n    binary: &'static str,\n    group: &'static str,\n    command: &'static str,\n    description: &'static str,\n}}\n\nfn main() {{\n    let app = App::parse();\n    let skin = Skin::new(\"{name}\", \"{version}\").with_skill_path(\"skills/SKILL.md\");\n\n    match app.action {{\n        Some(action) => {{\n            let response = match action {{\n{command_match_arms}            }};\n            if app.json {{\n                println!(\"{{}}\", serde_json::to_string_pretty(&response).expect(\"command response should serialize\"));\n            }} else {{\n                println!(\"{{}}\", skin.info(&format!(\"{{}} -> {{}}\", response.group, response.command)));\n                println!(\"{{}}\", skin.status(\"detail\", response.description));\n            }}\n        }}\n        None => {{\n            let summary = package_summary();\n            if app.json {{\n                println!(\"{{}}\", serde_json::to_string_pretty(&summary).expect(\"package summary should serialize\"));\n            }} else {{\n                for line in skin.banner_lines() {{\n                    println!(\"{{line}}\");\n                }}\n                println!(\"{{}}\", skin.status(\"binary\", \"{binary}\"));\n                println!(\"{{}}\", skin.status(\"format\", \"{project_format}\"));\n                println!(\"{{}}\", skin.status(\"groups\", \"{command_group_list}\"));\n            }}\n        }}\n    }}\n}}\n\nfn package_summary() -> PackageSummary {{\n    PackageSummary {{\n        name: \"{name}\",\n        binary: \"{binary}\",\n        version: \"{version}\",\n        description: \"{description}\",\n        project_format: \"{project_format}\",\n        skill_path: \"{skill_path}\",\n        command_groups: vec![{command_groups}],\n        supports_json: true,\n        repl_default: true,\n    }}\n}}\n\nfn command_response(group: &'static str, command: &'static str, description: &'static str) -> CommandResponse {{\n    CommandResponse {{\n        software: \"{name}\",\n        binary: \"{binary}\",\n        group,\n        command,\n        description,\n    }}\n}}\n\n{command_name_fns}\n\n{command_description_fns}\n",
-        name = manifest.name,
-        binary = manifest.binary,
-        description = manifest.description,
-        version = manifest.version,
-        project_format = manifest.project.format,
-        skill_path = skill_path,
-        action_variants = action_variants,
-        command_enums = command_enums,
-        command_match_arms = command_match_arms,
-        command_groups = command_groups,
-        command_group_list = command_group_list,
-        command_name_fns = command_name_fns,
-        command_description_fns = command_description_fns,
-    )
-}
-
-pub fn render_smoke_test(manifest: &CliAnythingManifest) -> String {
-    let first_group = manifest
-        .command_groups
-        .first()
-        .expect("generated package should include at least one command group");
-    let first_command = first_group
-        .commands
-        .first()
-        .expect("generated package should include at least one command");
-    let command_group_count = manifest.command_groups.len();
-
-    format!(
-        "use std::process::Command;\n\nuse serde_json::Value;\n\nfn run_binary(args: &[&str]) -> std::process::Output {{\n    Command::new(env!(\"CARGO_BIN_EXE_{binary}\"))\n        .args(args)\n        .output()\n        .expect(\"generated binary should run\")\n}}\n\n#[test]\nfn binary_name_is_stable() {{\n    assert_eq!(\"{binary}\", \"{binary}\");\n}}\n\n#[test]\nfn json_summary_reports_package_metadata() {{\n    let output = run_binary(&[\"--json\"]);\n\n    assert!(output.status.success());\n\n    let payload: Value = serde_json::from_slice(&output.stdout)\n        .expect(\"summary output should be valid json\");\n\n    assert_eq!(payload[\"name\"], \"{name}\");\n    assert_eq!(payload[\"binary\"], \"{binary}\");\n    assert_eq!(payload[\"version\"], \"{version}\");\n    assert_eq!(payload[\"description\"], \"{description}\");\n    assert_eq!(payload[\"project_format\"], \"{project_format}\");\n    assert_eq!(\n        payload[\"command_groups\"].as_array().map(Vec::len),\n        Some({command_group_count})\n    );\n}}\n\n#[test]\nfn json_subcommand_response_includes_description() {{\n    let output = run_binary(&[\"--json\", \"{first_group}\", \"{first_command}\"]);\n\n    assert!(output.status.success());\n\n    let payload: Value = serde_json::from_slice(&output.stdout)\n        .expect(\"command output should be valid json\");\n\n    assert_eq!(payload[\"software\"], \"{name}\");\n    assert_eq!(payload[\"group\"], \"{first_group}\");\n    assert_eq!(payload[\"command\"], \"{first_command}\");\n    assert_eq!(payload[\"description\"], \"{first_description}\");\n}}\n",
-        name = manifest.name,
-        binary = manifest.binary,
-        version = manifest.version,
-        description = manifest.description,
-        project_format = manifest.project.format,
-        command_group_count = command_group_count,
-        first_group = first_group.name,
-        first_command = first_command.name,
-        first_description = first_command.description,
-    )
-}
-
-fn render_command_group_enum(group: &CommandGroup) -> String {
-    let group_type = to_pascal_case(&group.name);
-    let variants = group
-        .commands
-        .iter()
-        .map(|command| format!("    {},\n", to_pascal_case(&command.name)))
-        .collect::<String>();
-
-    format!("#[derive(Debug, Subcommand)]\nenum {group_type}Command {{\n{variants}}}")
-}
-
-fn render_command_name_fn(group: &CommandGroup) -> String {
-    let group_type = to_pascal_case(&group.name);
-    let function_name = format!("{}_command_name", to_snake_case(&group.name));
-    let match_arms = group
-        .commands
-        .iter()
-        .map(|command| {
-            format!(
-                "        {group_type}Command::{} => \"{}\",\n",
-                to_pascal_case(&command.name),
-                command.name
-            )
-        })
-        .collect::<String>();
-
-    format!(
-        "fn {function_name}(command: &{group_type}Command) -> &'static str {{\n    match command {{\n{match_arms}    }}\n}}"
-    )
-}
-
-fn render_command_description_fn(group: &CommandGroup) -> String {
-    let group_type = to_pascal_case(&group.name);
-    let function_name = format!("{}_command_description", to_snake_case(&group.name));
-    let match_arms = group
-        .commands
-        .iter()
-        .map(|command| {
-            format!(
-                "        {group_type}Command::{} => \"{}\",\n",
-                to_pascal_case(&command.name),
-                command.description
-            )
-        })
-        .collect::<String>();
-
-    format!(
-        "fn {function_name}(command: &{group_type}Command) -> &'static str {{\n    match command {{\n{match_arms}    }}\n}}"
-    )
-}
-
-*/
-
 pub fn to_pascal_case(value: &str) -> String {
     value
         .split(|character: char| !character.is_ascii_alphanumeric())
@@ -1091,7 +961,11 @@ pub fn to_snake_case(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     fn unique_test_dir(prefix: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -1099,6 +973,28 @@ mod tests {
             .expect("system time should be valid")
             .as_nanos();
         std::env::temp_dir().join(format!("cli-anything-rs-generator-{prefix}-{nanos}"))
+    }
+
+    #[cfg(unix)]
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("repo root should resolve")
+    }
+
+    #[cfg(unix)]
+    fn make_temp_workspace_with_shared_crates(prefix: &str) -> PathBuf {
+        let workspace = unique_test_dir(prefix);
+        fs::create_dir_all(workspace.join("packages")).expect("packages dir should exist");
+        fs::write(
+            workspace.join("Cargo.toml"),
+            "[workspace]\nmembers = [\n    \"crates/*\",\n    \"packages/*\",\n]\nresolver = \"3\"\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.1.0\"\nlicense = \"MIT\"\nauthors = [\"cli-anything contributors\"]\n\n[workspace.dependencies]\nanyhow = \"1.0\"\nclap = { version = \"4.5\", features = [\"derive\"] }\nserde = { version = \"1.0\", features = [\"derive\"] }\nserde_json = \"1.0\"\ntoml = \"0.8\"\n",
+        )
+        .expect("workspace Cargo.toml should be written");
+        symlink(repo_root().join("crates"), workspace.join("crates"))
+            .expect("shared crates symlink should be created");
+        workspace
     }
 
     #[test]
@@ -1136,6 +1032,31 @@ mod tests {
         assert!(result.layout.src_main.exists());
         assert!(result.layout.skill_file.exists());
         assert!(result.layout.tests_dir.join("smoke.rs").exists());
+
+        fs::remove_dir_all(&workspace).expect("workspace should be removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_gimp_package_smoke_tests_run_in_temp_workspace() {
+        let workspace = make_temp_workspace_with_shared_crates("generated-smoke");
+        let result = generate_package(&workspace, "gimp", false).expect("build should succeed");
+
+        let output = Command::new("cargo")
+            .arg("test")
+            .arg("--manifest-path")
+            .arg(&result.layout.cargo_toml)
+            .arg("--test")
+            .arg("smoke")
+            .output()
+            .expect("generated package smoke tests should run");
+
+        assert!(
+            output.status.success(),
+            "generated smoke tests failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         fs::remove_dir_all(&workspace).expect("workspace should be removed");
     }
