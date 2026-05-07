@@ -870,10 +870,7 @@ fn render_command_pattern(group: &CommandGroup, command: &CommandSpec) -> String
 
 fn qualified_command_pattern(group: &CommandGroup, command: &CommandSpec) -> String {
     let group_type = to_pascal_case(&group.name);
-    format!(
-        "{group_type}Command::{}",
-        render_command_pattern(group, command)
-    )
+    format!("{group_type}Command::{}", render_command_pattern(group, command))
 }
 
 fn response_command_pattern(group: &CommandGroup, command: &CommandSpec) -> String {
@@ -926,6 +923,7 @@ fn has_command(manifest: &CliAnythingManifest, group_name: &str, command_name: &
 fn rust_string(value: &str) -> String {
     format!("{value:?}")
 }
+
 
 pub fn to_pascal_case(value: &str) -> String {
     value
@@ -997,6 +995,30 @@ mod tests {
         workspace
     }
 
+    #[cfg(unix)]
+    fn assert_generated_package_smoke_tests_run(software: &str) {
+        let workspace = make_temp_workspace_with_shared_crates(&format!("{software}-generated"));
+        let result = generate_package(&workspace, software, false).expect("build should succeed");
+
+        let output = Command::new("cargo")
+            .arg("test")
+            .arg("--manifest-path")
+            .arg(&result.layout.cargo_toml)
+            .arg("--test")
+            .arg("smoke")
+            .output()
+            .expect("generated package smoke tests should run");
+
+        assert!(
+            output.status.success(),
+            "generated smoke tests failed for {software}\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&workspace).expect("workspace should be removed");
+    }
+
     #[test]
     fn scaffold_manifest_uses_curated_metadata_for_known_targets() {
         let manifest = scaffold_manifest("blender");
@@ -1039,26 +1061,19 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn generated_gimp_package_smoke_tests_run_in_temp_workspace() {
-        let workspace = make_temp_workspace_with_shared_crates("generated-smoke");
-        let result = generate_package(&workspace, "gimp", false).expect("build should succeed");
+        assert_generated_package_smoke_tests_run("gimp");
+    }
 
-        let output = Command::new("cargo")
-            .arg("test")
-            .arg("--manifest-path")
-            .arg(&result.layout.cargo_toml)
-            .arg("--test")
-            .arg("smoke")
-            .output()
-            .expect("generated package smoke tests should run");
+    #[cfg(unix)]
+    #[test]
+    fn generated_blender_package_smoke_tests_run_in_temp_workspace() {
+        assert_generated_package_smoke_tests_run("blender");
+    }
 
-        assert!(
-            output.status.success(),
-            "generated smoke tests failed\nstdout:\n{}\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-
-        fs::remove_dir_all(&workspace).expect("workspace should be removed");
+    #[cfg(unix)]
+    #[test]
+    fn generated_drawio_package_smoke_tests_run_in_temp_workspace() {
+        assert_generated_package_smoke_tests_run("drawio");
     }
 
     #[test]
